@@ -21,12 +21,18 @@
 #include "tusb_cdc_acm.h"
 #include "sdkconfig.h"
 
+// #include "DAP_config.h"
+// #include "DAP.h"
+
+// TaskHandle_t kDAPTaskHandle = NULL;
+// void DAP_Thread(void *pvParameters);
+
 #ifdef CONFIG_EXAMPLE_STORAGE_MEDIA_SDMMCCARD
 #include "diskio_impl.h"
 #include "diskio_sdmmc.h"
 #endif
 
-static const char *TAG = "example_main";
+static const char *TAG = "for usb";
 
 /* TinyUSB descriptors
    ********************************************************************* */
@@ -137,6 +143,7 @@ static esp_err_t storage_init_spiflash(wl_handle_t *wl_handle)
     return wl_mount(data_partition, wl_handle);
 }
 static uint8_t buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];
+
 void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
 {
     /* initialization */
@@ -158,6 +165,9 @@ void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
 
 void usb_task(void)
 {
+
+    // DAP_Setup();
+
     ESP_LOGI(TAG, "Initializing storage...");
     static wl_handle_t wl_handle = WL_INVALID_HANDLE;
     ESP_ERROR_CHECK(storage_init_spiflash(&wl_handle));
@@ -181,17 +191,6 @@ void usb_task(void)
     };
 
 
-
-    // const tinyusb_config_t tusb_cfg = {
-    //     .device_descriptor = NULL,
-    //     .string_descriptor = NULL,
-    //     .external_phy = false,
-    //     .configuration_descriptor = NULL,
-    // };
-
-    // ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
-
-
     tinyusb_config_cdcacm_t acm_cfg = {
         .usb_dev = TINYUSB_USBDEV_0,
         .cdc_port = TINYUSB_CDC_ACM_0,
@@ -205,13 +204,12 @@ void usb_task(void)
     
 
 
-
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
     ESP_LOGI(TAG, "USB MSC initialization DONE");
 
     ESP_ERROR_CHECK(tusb_cdc_acm_init(&acm_cfg));
 
-
+    // xTaskCreate(DAP_Thread, "DAP_Task", 2048, NULL, 10, &kDAPTaskHandle);
 
 
     while (1) {

@@ -4,8 +4,9 @@
         "board/esp32s3-bridge.cfg"
     ],
     "idf.flashType": "UART",
-    "idf.port": "/dev/ttyACM1",
+    "idf.port": "/dev/ttyACM0",
     "files.associations": {
-        "wifi.h": "c"
+        "wifi.h": "c",
+        "dap_config.h": "c"
     }
 }

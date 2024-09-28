@@ -7,7 +7,8 @@
                 "${workspaceFolder}/components/**",
                 "${workspaceFolder}/build/config/**",
                 "~/esp_idf/esp-idf-v5.1.2/components/**",
-                "~/esp_idf/esp-idf-v5.1.2/**"
+                "~/esp_idf/esp-idf-v5.1.2/**",
+                "~/esp_idf/esp-idf-v5.1.2/components/freertos/**"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",
