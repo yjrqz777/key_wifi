@@ -1,0 +1,11 @@
+{
+    "idf.adapterTargetName": "esp32s3",
+    "idf.openOcdConfigs": [
+        "board/esp32s3-bridge.cfg"
+    ],
+    "idf.flashType": "UART",
+    "idf.port": "/dev/ttyACM1",
+    "files.associations": {
+        "wifi.h": "c"
+    }
+}
