@@ -21,6 +21,10 @@
 #include "tusb_cdc_acm.h"
 #include "sdkconfig.h"
 
+
+
+#include "esp_vfs_fat.h"
+
 // #include "DAP_config.h"
 // #include "DAP.h"
 
@@ -163,14 +167,79 @@ void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
     tinyusb_cdcacm_write_flush(itf, 0);
 }
 
+void tinyusb_cdc_coding_callback(int itf, cdcacm_event_t *event)
+{
+    ESP_LOGI(TAG, "Line coding changed");
+    cdc_line_coding_t const *coding = event->line_coding_changed_data.p_line_coding;
+    ESP_LOGI(TAG, "bit_rate = %ld", coding->bit_rate);
+    ESP_LOGI(TAG, "stop_bits = %d", coding->stop_bits);
+    ESP_LOGI(TAG, "parity = %d", coding->parity);
+    ESP_LOGI(TAG, "data_bits = %d", coding->data_bits);
+
+    // uint32_t baudrate = 0;
+
+    // if (cdc_uart_get_baudrate(&baudrate) && (baudrate != coding->bit_rate))
+    // {
+    //     cdc_uart_set_baudrate(coding->bit_rate);
+    // }
+}
+
+// TinyUSB MSC mount callback
+// void tud_mount_cb(void) {
+//     ESP_LOGE(TAG, "MSC Device mounted");
+
+//     // Mount the FAT filesystem on the MSC device
+//     // esp_vfs_fat_mount_config_t mount_config = {
+//     //     .max_files = 5,
+//     //     .format_if_mount_failed = false,
+//     //     .allocation_unit_size = 16 * 1024
+//     // };
+
+//     // esp_err_t ret = esp_vfs_fat_spiflash_mount(base_path, "storage", &mount_config, &s_wl_handle);
+//     // if (ret != ESP_OK) {
+//     //     ESP_LOGE(TAG, "Failed to mount filesystem (%s)", esp_err_to_name(ret));
+//     // } else {
+//     //     ESP_LOGI(TAG, "Filesystem mounted successfully on %s", base_path);
+//     // }
+// }
+
+
+void list_dir(const char *path) {  
+    DIR *dir = opendir(path);  
+    if (dir == NULL) {  
+        ESP_LOGE(TAG, "Failed to open directory: %s", path);  
+        return;  
+    }  
+  
+    struct dirent *entry;  
+    while ((entry = readdir(dir)) != NULL) {  
+        ESP_LOGI(TAG, "-+--------%s", entry->d_name);  
+    }  
+  
+    closedir(dir);  
+}  
+
 void usb_task(void)
 {
-
+    esp_err_t ret;
     // DAP_Setup();
+    // const esp_vfs_fat_mount_config_t mount_config = {
+    //         .max_files = 4,
+    //         .format_if_mount_failed = true,
+    //         .allocation_unit_size = CONFIG_WL_SECTOR_SIZE
+    // };
+    // ESP_ERROR_CHECK(esp_vfs_fat_spiflash_mount_ro(BASE_PATH, "storage", &mount_config));
+
+    // ESP_LOGI(TAG, "FAT filesystem mounted at %s", BASE_PATH);
+
+    // list_dir(BASE_PATH);
 
     ESP_LOGI(TAG, "Initializing storage...");
     static wl_handle_t wl_handle = WL_INVALID_HANDLE;
     ESP_ERROR_CHECK(storage_init_spiflash(&wl_handle));
+
+    // esp_vfs_fat_register(BASE_PATH, "storage", 5, NULL);
+
 
     const tinyusb_msc_spiflash_config_t config_spi = {
         .wl_handle = wl_handle
@@ -180,6 +249,8 @@ void usb_task(void)
 
     ESP_LOGI(TAG, "Mount storage...");
     ESP_ERROR_CHECK(tinyusb_msc_storage_mount(BASE_PATH));
+
+
 
     ESP_LOGI(TAG, "USB MSC initialization");
     const tinyusb_config_t tusb_cfg = {
@@ -198,7 +269,7 @@ void usb_task(void)
         .callback_rx = &tinyusb_cdc_rx_callback, // the first way to register a callback
         .callback_rx_wanted_char = NULL,
         .callback_line_state_changed = NULL,
-        .callback_line_coding_changed = NULL
+        .callback_line_coding_changed = &tinyusb_cdc_coding_callback
     };
 
     
@@ -212,9 +283,10 @@ void usb_task(void)
     // xTaskCreate(DAP_Thread, "DAP_Task", 2048, NULL, 10, &kDAPTaskHandle);
 
 
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        list_dir(BASE_PATH);
     while (1) {
-
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(2000));
     }
 
 }

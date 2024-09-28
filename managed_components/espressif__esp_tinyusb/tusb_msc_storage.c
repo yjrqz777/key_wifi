@@ -615,14 +615,15 @@ int32_t tud_msc_scsi_cb(uint8_t lun, uint8_t const scsi_cmd[16], void *buffer, u
 // Invoked when device is unmounted
 void tud_umount_cb(void)
 {
+    // ESP_LOGE(TAG, "tud_umount_cb");
     if (tinyusb_msc_storage_mount(s_storage_handle->base_path) != ESP_OK) {
         ESP_LOGW(TAG, "tud_umount_cb() mount Fails");
     }
-}
-
+} 
 // Invoked when device is mounted (configured)
 void tud_mount_cb(void)
 {
+    // ESP_LOGE(TAG, "tud_mount_cb");
     tinyusb_msc_storage_unmount();
 }
 /*********************************************************************** TinyUSB MSC callbacks*/
