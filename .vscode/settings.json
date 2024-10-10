@@ -8,6 +8,9 @@
     "files.associations": {
         "wifi.h": "c",
         "dap_config.h": "c",
-        "esp_vfs_fat.h": "c"
+        "esp_vfs_fat.h": "c",
+        "tusb_cdc_acm.h": "c",
+        "esp_log.h": "c",
+        "stddef.h": "c"
     }
 }

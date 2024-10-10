@@ -22,7 +22,7 @@
 #include "sdkconfig.h"
 
 
-
+#include "myfile.h"
 #include "esp_vfs_fat.h"
 
 // #include "DAP_config.h"
@@ -204,21 +204,6 @@ void tinyusb_cdc_coding_callback(int itf, cdcacm_event_t *event)
 // }
 
 
-void list_dir(const char *path) {  
-    DIR *dir = opendir(path);  
-    if (dir == NULL) {  
-        ESP_LOGE(TAG, "Failed to open directory: %s", path);  
-        return;  
-    }  
-  
-    struct dirent *entry;  
-    while ((entry = readdir(dir)) != NULL) {  
-        ESP_LOGI(TAG, "-+--------%s", entry->d_name);  
-    }  
-  
-    closedir(dir);  
-}  
-
 void usb_task(void)
 {
     esp_err_t ret;
@@ -243,6 +228,7 @@ void usb_task(void)
 
     const tinyusb_msc_spiflash_config_t config_spi = {
         .wl_handle = wl_handle
+        // .mount_config = mount_config
     };
     ESP_ERROR_CHECK(tinyusb_msc_storage_init_spiflash(&config_spi));
 
@@ -281,10 +267,9 @@ void usb_task(void)
     ESP_ERROR_CHECK(tusb_cdc_acm_init(&acm_cfg));
 
     // xTaskCreate(DAP_Thread, "DAP_Task", 2048, NULL, 10, &kDAPTaskHandle);
+    list_dir(BASE_PATH);
 
-
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        list_dir(BASE_PATH);
+    vTaskDelay(pdMS_TO_TICKS(2000));
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
