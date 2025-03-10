@@ -12,5 +12,6 @@
         "tusb_cdc_acm.h": "c",
         "esp_log.h": "c",
         "stddef.h": "c"
-    }
+    },
+    "idf.pythonInstallPath": "/usr/bin/python3"
 }
