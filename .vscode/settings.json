@@ -13,5 +13,9 @@
         "esp_log.h": "c",
         "stddef.h": "c"
     },
-    "idf.pythonInstallPath": "/usr/bin/python3"
+    "idf.pythonInstallPath": "/usr/bin/python3",
+    "files.exclude": {
+            "**/.git": false
+        }
+
 }
