@@ -1,5 +1,5 @@
 
-idf_component_register(SRCS "myfile.c" "myusb.c" #"DAP_handle.c"
+idf_component_register(SRCS "myusb.c" #"DAP_handle.c" "myfile.c"
                        INCLUDE_DIRS "include"
-                       REQUIRES espressif__esp_tinyusb fatfs console fatfs#DAP
+                       REQUIRES cherry-embedded__cherryusb fatfs console fatfs#DAP
                        )

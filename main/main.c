@@ -24,16 +24,17 @@
 #include "var.h"
 
 
+const char *TAG = "main";
 
 void app_main(void)
 {
-    ESP_LOGI("TAG", "Initializing storage...");
+    ESP_LOGI(TAG, "---Initializing Key WIFI---");
 
     xQueueLed = xQueueCreate(5,sizeof(struct tRgbKeyDef));
     xQueueKey = xQueueCreate(5,sizeof(struct tRgbKeyDef));
 
 
-    xTaskCreate(usb_task, "usb_task", 4096*2, NULL, 15, NULL);
+    xTaskCreate(usb_task, "usb_task", 4096*10, NULL, 15, NULL);
     xTaskCreate(wifi_task, "wifi_task", 4096, NULL, 5, NULL);
     xTaskCreate(ws2812_task, "ws2812_task", 4096, NULL, 5, NULL);
     xTaskCreate(key_task, "key_task", 4096, NULL, 6, NULL);

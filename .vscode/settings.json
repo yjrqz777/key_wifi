@@ -16,6 +16,10 @@
     "idf.pythonInstallPath": "/usr/bin/python3",
     "files.exclude": {
             "**/.git": false
-        }
+        },
+    "search.exclude": {
+    "managed_components": false,
+    // "./node_modules": false
+    }
 
 }
