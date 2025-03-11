@@ -11,14 +11,17 @@
         "esp_vfs_fat.h": "c",
         "tusb_cdc_acm.h": "c",
         "esp_log.h": "c",
-        "stddef.h": "c"
+        "stddef.h": "c",
+        "array": "c",
+        "string": "c",
+        "string_view": "c"
     },
     "idf.pythonInstallPath": "/usr/bin/python3",
     "files.exclude": {
             "**/.git": false
         },
     "search.exclude": {
-    "managed_components": false,
+    "managed_components": false
     // "./node_modules": false
     }
 

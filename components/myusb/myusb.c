@@ -33,7 +33,7 @@
  */
 #include "usbd_core.h"
 #include "usbd_cdc_acm.h"
-
+#include "chry_ringbuffer.h"
 
 
 #define ECHO_TEST_TXD (4)
@@ -95,6 +95,9 @@ enum {
     EDPT_HID_IN = 0x83,
 };
 
+
+chry_ringbuffer_t rb;
+uint8_t mempool[1024];
 
 
 #ifdef CONFIG_USBDEV_ADVANCE_DESC
@@ -273,9 +276,13 @@ static void usbd_event_handler(uint8_t busid, uint8_t event)
     }
 }
 
+uint32_t read_len = 0;
 void usbd_cdc_acm_bulk_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
     USB_LOG_RAW("actual out len:%d\r\n", nbytes);
+    chry_ringbuffer_write(&rb, read_buffer, nbytes);
+    read_len = nbytes;
+    // uart_write_bytes(ECHO_UART_PORT_NUM, (const char *) read_buffer, nbytes);
     for (int i = 0; i < nbytes; i++) {
         // printf("%02x ", read_buffer[i]);
         USB_LOG_RAW("%c", (char)read_buffer[i]);
@@ -283,7 +290,7 @@ void usbd_cdc_acm_bulk_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
     USB_LOG_RAW("\r\n");
     // printf("\r\n");
     /* setup next out ep read transfer */
-    usbd_ep_start_read(busid, CDC_OUT_EP, read_buffer, 64);
+    // usbd_ep_start_read(busid, CDC_OUT_EP, read_buffer, CDC_MAX_MPS);
 }
 
 void usbd_cdc_acm_bulk_in(uint8_t busid, uint8_t ep, uint32_t nbytes)
@@ -292,10 +299,13 @@ void usbd_cdc_acm_bulk_in(uint8_t busid, uint8_t ep, uint32_t nbytes)
 
     if ((nbytes % usbd_get_ep_mps(busid, ep)) == 0 && nbytes) {
         /* send zlp */
-        usbd_ep_start_write(busid, CDC_IN_EP, (uint8_t *)"yjrqz", 6);
-    } else {
+        usbd_ep_start_write(busid, CDC_IN_EP, (uint8_t *)"12345", 6);
+    } 
+    else 
+    {
         ep_tx_busy_flag = false;
     }
+    USB_LOG_RAW("ep_tx_busy_flag:%d\r\n", ep_tx_busy_flag);
 }
 
 /*!< endpoint call back */
@@ -380,6 +390,37 @@ void cdc_acm_data_send_with_dtr_test(uint8_t busid)
     }
 }
 
+
+uint8_t Detection_Effect(uint8_t class,uint8_t data)
+{
+    // uart_word_length_t
+    if (class == 1)
+    {
+        if (data >=0x00 && data <= 0x03)
+        {
+            return data;
+        }
+        else
+        {
+            return 0x03;
+        }
+    }
+    else if (class == 2)
+    {
+        if (data >=0x01 && data <= 0x03)
+        {
+            return data;
+        }
+        else
+        {
+            return 0x01;
+        }
+    }
+    return 0x01;
+}
+
+
+
 /***************************************************************************************************
  * 功能描述: 
  * 输入参数: 
@@ -390,19 +431,14 @@ void cdc_acm_data_send_with_dtr_test(uint8_t busid)
  * param {uint8_t} intf
  * param {cdc_line_coding} *line_coding
 ***************************************************************************************************/
-
-static char *stop_name[] = { "1", "1.5", "2" };
-static char *parity_name[] = { "N", "O", "E", "M", "S" };
-
-
 void usbd_cdc_acm_set_line_coding(uint8_t busid, uint8_t intf, struct cdc_line_coding *line_coding)
 {
     (void)busid;
     (void)intf;
 
     uart_set_baudrate(ECHO_UART_PORT_NUM, line_coding->dwDTERate);
-    uart_set_word_length(ECHO_UART_PORT_NUM, (uart_word_length_t)(line_coding->bDataBits - 5));
-    uart_set_stop_bits(ECHO_UART_PORT_NUM, (uart_stop_bits_t)line_coding->bCharFormat + 1);
+    uart_set_word_length(ECHO_UART_PORT_NUM, (uart_word_length_t)Detection_Effect(1,line_coding->bDataBits - 5));
+    uart_set_stop_bits(ECHO_UART_PORT_NUM, (uart_stop_bits_t)Detection_Effect(2,line_coding->bCharFormat + 1));
     // uart_set_parity(ECHO_UART_PORT_NUM, (uart_parity_t)line_coding->bParityType);
 }
 
@@ -476,21 +512,70 @@ void usb_task(void)
 {
     esp_err_t ret;
     uint8_t *data = (uint8_t *) malloc(BUF_SIZE);
+    uint8_t u8data[65];
+
+
+
+
+    /**
+     * 需要注意的点是，init 函数第三个参数是内存池的大小（字节为单位）
+     * 也是ringbuffer的深度，必须为 2 的幂次！！！。
+     * 例如 4、16、32、64、128、1024、8192、65536等
+     */
+    if(0 == chry_ringbuffer_init(&rb, mempool, 1024)){
+        printf("success\r\n");
+    }else{
+        printf("error\r\n");
+    }
+
+
+
+
+
     my_cdc_acm_init(0, ESP_USBD_BASE);
     Uart_init();
     // vTaskDelay(pdMS_TO_TICKS(2000));
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(200));
+        vTaskDelay(pdMS_TO_TICKS(10));
 
-        // Read data from the UART
-        int len = uart_read_bytes(ECHO_UART_PORT_NUM, data, (BUF_SIZE - 1), 20 / portTICK_PERIOD_MS);
-        // Write data back to the UART
-        uart_write_bytes(ECHO_UART_PORT_NUM, (const char *) data, len);
-        if (len) {
-            data[len] = '\0';
-            ESP_LOGI(TAG, "Recv str: %s", (char *) data);
-            usbd_ep_start_write(0, CDC_IN_EP, (uint8_t *)"yjrqz", 6);
+        uint32_t used = chry_ringbuffer_get_used(&rb);
+        if (used != 0)
+        {
+            chry_ringbuffer_read(&rb, u8data, read_len);
+            uart_write_bytes(ECHO_UART_PORT_NUM, (const char *) u8data, read_len);
+            usbd_ep_start_read(0, CDC_OUT_EP, read_buffer, CDC_MAX_MPS);
+            printf("%ld,%ld\n",used,read_len);
         }
+        
+        
+        
+
+
+        // char data[1024];
+        // while(1){
+        //     uint32_t len =chry_ringbuffer_read(&rb, data, 11);
+        //     if (len){
+        //         printf("[C] read success, read %d byte\r\n",len);
+        //         data[11]='\0';
+        //         printf("%s\r\n",data);
+        //     }else{
+        //         printf("[C] read faild, no data in ringbuffer\r\n");
+        //     }
+        //     vTaskDelay(100);
+        // }
+
+
+
+
+        // // Read data from the UART
+        // int len = uart_read_bytes(ECHO_UART_PORT_NUM, data, (BUF_SIZE - 1), 20 / portTICK_PERIOD_MS);
+        // // Write data back to the UART
+        // // uart_write_bytes(ECHO_UART_PORT_NUM, (const char *) data, len);
+        // if (len) {
+        //     data[len] = '\0';
+        //     ESP_LOGI(TAG, "Recv str: %s", (char *) data);
+        //     usbd_ep_start_write(0, CDC_IN_EP, (uint8_t *)"yjrqz", 6);
+        // }
 
         // cdc_acm_data_send_with_dtr_test(0);
     }
