@@ -280,9 +280,9 @@ uint32_t read_len = 0;
 void usbd_cdc_acm_bulk_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
     USB_LOG_RAW("actual out len:%d\r\n", nbytes);
-    chry_ringbuffer_write(&rb, read_buffer, nbytes);
+    // chry_ringbuffer_write(&rb, read_buffer, nbytes);
     read_len = nbytes;
-    // uart_write_bytes(ECHO_UART_PORT_NUM, (const char *) read_buffer, nbytes);
+    uart_write_bytes(ECHO_UART_PORT_NUM, (const char *) read_buffer, nbytes);
     for (int i = 0; i < nbytes; i++) {
         // printf("%02x ", read_buffer[i]);
         USB_LOG_RAW("%c", (char)read_buffer[i]);
@@ -290,7 +290,7 @@ void usbd_cdc_acm_bulk_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
     USB_LOG_RAW("\r\n");
     // printf("\r\n");
     /* setup next out ep read transfer */
-    // usbd_ep_start_read(busid, CDC_OUT_EP, read_buffer, CDC_MAX_MPS);
+    usbd_ep_start_read(busid, CDC_OUT_EP, read_buffer, CDC_MAX_MPS);
 }
 
 void usbd_cdc_acm_bulk_in(uint8_t busid, uint8_t ep, uint32_t nbytes)
@@ -499,7 +499,7 @@ void Uart_init(void)
     intr_alloc_flags = ESP_INTR_FLAG_IRAM;
 #endif
 
-    ESP_ERROR_CHECK(uart_driver_install(ECHO_UART_PORT_NUM, BUF_SIZE * 2, 0, 0, NULL, intr_alloc_flags));
+    ESP_ERROR_CHECK(uart_driver_install(ECHO_UART_PORT_NUM, BUF_SIZE * 2, BUF_SIZE * 2, 0, NULL, intr_alloc_flags));
     ESP_ERROR_CHECK(uart_param_config(ECHO_UART_PORT_NUM, &uart_config));
     ESP_ERROR_CHECK(uart_set_pin(ECHO_UART_PORT_NUM, ECHO_TEST_TXD, ECHO_TEST_RXD, ECHO_TEST_RTS, ECHO_TEST_CTS));
 
@@ -528,24 +528,26 @@ void usb_task(void)
         printf("error\r\n");
     }
 
-
-
-
+    uint32_t baud_rate = 0;
 
     my_cdc_acm_init(0, ESP_USBD_BASE);
     Uart_init();
     // vTaskDelay(pdMS_TO_TICKS(2000));
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(10));
+        // uart_get_baudrate(ECHO_UART_PORT_NUM,&baud_rate);
 
-        uint32_t used = chry_ringbuffer_get_used(&rb);
-        if (used != 0)
-        {
-            chry_ringbuffer_read(&rb, u8data, read_len);
-            uart_write_bytes(ECHO_UART_PORT_NUM, (const char *) u8data, read_len);
-            usbd_ep_start_read(0, CDC_OUT_EP, read_buffer, CDC_MAX_MPS);
-            printf("%ld,%ld\n",used,read_len);
-        }
+        // printf("%ld\r\n",baud_rate);
+
+
+        // uint32_t used = chry_ringbuffer_get_used(&rb);
+        // if (used != 0)
+        // {
+        //     chry_ringbuffer_read(&rb, u8data, read_len);
+        //     uart_write_bytes(ECHO_UART_PORT_NUM, (const char *) u8data, read_len);
+        //     usbd_ep_start_read(0, CDC_OUT_EP, read_buffer, CDC_MAX_MPS);
+        //     printf("%ld,%ld\n",used,read_len);
+        // }
         
         
         
@@ -568,9 +570,10 @@ void usb_task(void)
 
 
         // // Read data from the UART
-        // int len = uart_read_bytes(ECHO_UART_PORT_NUM, data, (BUF_SIZE - 1), 20 / portTICK_PERIOD_MS);
-        // // Write data back to the UART
-        // // uart_write_bytes(ECHO_UART_PORT_NUM, (const char *) data, len);
+        int len = uart_read_bytes(ECHO_UART_PORT_NUM, data, (BUF_SIZE - 1), 20 / portTICK_PERIOD_MS);
+        // Write data back to the UART
+        // uart_write_bytes(ECHO_UART_PORT_NUM, (const char *) data, len);
+        usbd_ep_start_write(0, CDC_IN_EP, (uint8_t *)data, len);
         // if (len) {
         //     data[len] = '\0';
         //     ESP_LOGI(TAG, "Recv str: %s", (char *) data);
