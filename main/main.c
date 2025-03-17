@@ -34,9 +34,9 @@ void app_main(void)
     xQueueKey = xQueueCreate(5,sizeof(struct tRgbKeyDef));
 
 
-    xTaskCreate(usb_task, "usb_task", 4096*20, NULL, 15, NULL);
-    xTaskCreate(wifi_task, "wifi_task", 4096, NULL, 5, NULL);
-    xTaskCreate(ws2812_task, "ws2812_task", 4096, NULL, 5, NULL);
-    xTaskCreate(key_task, "key_task", 4096, NULL, 6, NULL);
+    xTaskCreate(usb_task, "usb_task", 4096*5, NULL, 15, NULL);
+    xTaskCreate(wifi_task, "wifi_task", 1024*3, NULL, 5, NULL);
+    xTaskCreate(ws2812_task, "ws2812_task", 1024*3, NULL, 5, NULL);
+    xTaskCreate(key_task, "key_task", 1024*3, NULL, 6, NULL);
 
 }
