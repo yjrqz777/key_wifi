@@ -53,7 +53,6 @@
 
 static const char *TAG = "Cherry USB";
 
-
 #define BUSID 0
 
 #define WINUSB_IN_EP 0x81
@@ -238,12 +237,12 @@ static const uint8_t config_descriptor[] = {
     /* Configuration 0 */
     USB_CONFIG_DESCRIPTOR_INIT(USB_CONFIG_SIZE, INTF_NUM, 0x01, USB_CONFIG_BUS_POWERED, USBD_MAX_POWER),
     /* Interface 0 */
-    USB_INTERFACE_DESCRIPTOR_INIT(0x00, 0x00, 0x02, 0xFF, 0x00, 0x00, 0x02),
+    USB_INTERFACE_DESCRIPTOR_INIT(0x00, 0x00, 0x02, 0xFF, 0x00, 0x00, 0x04),
     /* Endpoint OUT 2 */
     USB_ENDPOINT_DESCRIPTOR_INIT(WINUSB_OUT_EP, USB_ENDPOINT_TYPE_BULK, WINUSB_EP_MPS, 0x00),
     /* Endpoint IN 1 */
     USB_ENDPOINT_DESCRIPTOR_INIT(WINUSB_IN_EP, USB_ENDPOINT_TYPE_BULK, WINUSB_EP_MPS, 0x00),
-    CDC_ACM_DESCRIPTOR_INIT(0x01, CDC_INT_EP, CDC_OUT_EP, CDC_IN_EP, WINUSB_EP_MPS, 0x00)};
+    CDC_ACM_DESCRIPTOR_INIT(0x01, CDC_INT_EP, CDC_OUT_EP, CDC_IN_EP, WINUSB_EP_MPS, 0x05)};
 
 static const uint8_t device_quality_descriptor[] = {
     ///////////////////////////////////////
@@ -266,6 +265,8 @@ static const char *string_descriptors[] = {
     "CherryUSB",                /* Manufacturer */
     "CherryUSB WINUSB DEMO",    /* Product */
     "2022123456",               /* Serial Number */
+    "MyWinUSB IF",              /* WinUSB接口名称 */
+    "MyCDC Port",               /* CDC接口名称 */
 };
 
 static const uint8_t *device_descriptor_callback(uint8_t speed)
@@ -285,7 +286,7 @@ static const uint8_t *device_quality_descriptor_callback(uint8_t speed)
 
 static const char *string_descriptor_callback(uint8_t speed, uint8_t index)
 {
-    if (index > 3)
+    if (index > 5)
     {
         return NULL;
     }
@@ -524,6 +525,7 @@ void my_USB_init(uint8_t busid, uintptr_t reg_base)
 #else
     usbd_desc_register(busid, winusbv2_descriptor);
 #endif
+
 #ifndef CONFIG_USBDEV_ADVANCE_DESC
     usbd_bos_desc_register(busid, &bos_desc);
     usbd_msosv2_desc_register(busid, &msosv2_desc);
