@@ -16,7 +16,9 @@
         "string": "c",
         "string_view": "c",
         "usbd_hid.h": "c",
-        "chry_ringbuffer.h": "c"
+        "chry_ringbuffer.h": "c",
+        "dap.h": "c",
+        "dap_strings.h": "c"
     },
     "idf.pythonInstallPath": "/usr/bin/python3",
     "files.exclude": {

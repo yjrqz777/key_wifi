@@ -37,6 +37,9 @@
 #include "usbd_hid.h"
 #include "chry_ringbuffer.h"
 
+#include "DAP_config.h"
+#include "DAP.h"
+#include "swd_host.h"
 
 #define ECHO_TEST_TXD (4)
 #define ECHO_TEST_RXD (5)
@@ -65,7 +68,13 @@ static const char *TAG = "Cherry USB";
 #define USBD_MAX_POWER 500
 #define USBD_LANGID_STRING 1033
 
-#define USB_CONFIG_SIZE (9 + 9 + 7 + 7 + CDC_ACM_DESCRIPTOR_LEN)
+
+#define WINUSB_DESCRIPTOR_LEN (9 + 7 + 7)
+
+#define DAP_DESCRIPTOR_LEN WINUSB_DESCRIPTOR_LEN
+
+
+#define USB_CONFIG_SIZE (9 + DAP_DESCRIPTOR_LEN + CDC_ACM_DESCRIPTOR_LEN)
 #define INTF_NUM 3
 
 #ifdef CONFIG_USB_HS
@@ -346,6 +355,26 @@ const uint8_t winusbv2_descriptor[] = {
     0x00};
 #endif
 
+
+
+static volatile uint16_t USB_RequestIndexI; // Request  Index In
+static volatile uint16_t USB_RequestIndexO; // Request  Index Out
+static volatile uint16_t USB_RequestCountI; // Request  Count In
+static volatile uint16_t USB_RequestCountO; // Request  Count Out
+static volatile uint8_t USB_RequestIdle;    // Request  Idle  Flag
+
+static volatile uint16_t USB_ResponseIndexI; // Response Index In
+static volatile uint16_t USB_ResponseIndexO; // Response Index Out
+static volatile uint16_t USB_ResponseCountI; // Response Count In
+static volatile uint16_t USB_ResponseCountO; // Response Count Out
+static volatile uint8_t USB_ResponseIdle;    // Response Idle  Flag
+
+__attribute__ ((aligned (4))) static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t USB_Request[DAP_PACKET_COUNT][DAP_PACKET_SIZE];  // Request  Buffer
+__attribute__ ((aligned (4))) static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t USB_Response[DAP_PACKET_COUNT][DAP_PACKET_SIZE]; // Response Buffer
+__attribute__ ((aligned (4))) static uint16_t USB_RespSize[DAP_PACKET_COUNT];           
+
+
+
 USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t usb_read_buffer[2048];
 USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t cdc_read_buffer[WINUSB_EP_MPS];
 USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t write_buffer[2048];
@@ -369,7 +398,11 @@ static void usbd_event_handler(uint8_t busid, uint8_t event)
     case USBD_EVENT_CONFIGURED:
         ep_tx_busy_flag = false;
         /* setup first out ep read transfer */
-        usbd_ep_start_read(busid, WINUSB_OUT_EP, usb_read_buffer, WINUSB_EP_MPS);
+        USB_RequestIdle = 0U;
+
+        // usbd_ep_start_read(DAP_OUT_EP, USB_Request[0], DAP_PACKET_SIZE);
+
+        usbd_ep_start_read(busid, WINUSB_OUT_EP, USB_Request[0], DAP_PACKET_SIZE);
         usbd_ep_start_read(busid, CDC_OUT_EP, cdc_read_buffer, WINUSB_EP_MPS);
         break;
     case USBD_EVENT_SET_REMOTE_WAKEUP:
@@ -382,30 +415,38 @@ static void usbd_event_handler(uint8_t busid, uint8_t event)
     }
 }
 
-void usbd_winusb_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
+void dap_out_callback(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
-    USB_LOG_RAW("actual out len:%d\r\n", nbytes);
-    // for (int i = 0; i < 100; i++) {
-    //     printf("%02x ", read_buffer[i]);
-    // }
-    // printf("\r\n");
-    //  usbd_ep_start_write(busid, WINUSB_IN_EP, read_buffer, nbytes);
-    /* setup next out ep read transfer */
-    usbd_ep_start_read(busid, WINUSB_OUT_EP, usb_read_buffer, WINUSB_EP_MPS);
+    if (USB_Request[USB_RequestIndexI][0] == ID_DAP_TransferAbort) {
+        DAP_TransferAbort = 1U;
+    } else {
+        USB_RequestIndexI++;
+        if (USB_RequestIndexI == DAP_PACKET_COUNT) {
+            USB_RequestIndexI = 0U;
+        }
+        USB_RequestCountI++;
+    }
+
+    // Start reception of next request packet
+    if ((uint16_t)(USB_RequestCountI - USB_RequestCountO) != DAP_PACKET_COUNT) {
+        usbd_ep_start_read(busid, WINUSB_OUT_EP, USB_Request[USB_RequestIndexI], DAP_PACKET_SIZE);
+    } else {
+        USB_RequestIdle = 1U;
+    }
 }
 
-void usbd_winusb_in(uint8_t busid, uint8_t ep, uint32_t nbytes)
+void dap_in_callback(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
-    USB_LOG_RAW("actual in len:%d\r\n", nbytes);
-
-    if ((nbytes % usbd_get_ep_mps(busid, ep)) == 0 && nbytes)
-    {
-        /* send zlp */
-        usbd_ep_start_write(busid, WINUSB_IN_EP, NULL, 0);
-    }
-    else
-    {
-        ep_tx_busy_flag = false;
+    if (USB_ResponseCountI != USB_ResponseCountO) {
+        // Load data from response buffer to be sent back
+        usbd_ep_start_write(busid, WINUSB_IN_EP, USB_Response[USB_ResponseIndexO], USB_RespSize[USB_ResponseIndexO]);
+        USB_ResponseIndexO++;
+        if (USB_ResponseIndexO == DAP_PACKET_COUNT) {
+            USB_ResponseIndexO = 0U;
+        }
+        USB_ResponseCountO++;
+    } else {
+        USB_ResponseIdle = 1U;
     }
 }
 
@@ -439,13 +480,30 @@ void usbd_cdc_acm_in(uint8_t busid, uint8_t ep, uint32_t nbytes)
     }
 }
 
+static void chry_dap_state_init(void)
+{
+    // Initialize variables
+    USB_RequestIndexI = 0U;
+    USB_RequestIndexO = 0U;
+    USB_RequestCountI = 0U;
+    USB_RequestCountO = 0U;
+    USB_RequestIdle = 1U;
+    USB_ResponseIndexI = 0U;
+    USB_ResponseIndexO = 0U;
+    USB_ResponseCountI = 0U;
+    USB_ResponseCountO = 0U;
+    USB_ResponseIdle = 1U;
+}
+
+
+
 struct usbd_endpoint winusb_out_ep1 = {
     .ep_addr = WINUSB_OUT_EP,
-    .ep_cb = usbd_winusb_out};
+    .ep_cb = dap_out_callback};
 
 struct usbd_endpoint winusb_in_ep1 = {
     .ep_addr = WINUSB_IN_EP,
-    .ep_cb = usbd_winusb_in};
+    .ep_cb = dap_in_callback};
 
 static struct usbd_endpoint cdc_out_ep = {
     .ep_addr = CDC_OUT_EP,
@@ -587,6 +645,85 @@ void usbd_cdc_acm_get_line_coding(uint8_t busid, uint8_t intf, struct cdc_line_c
     // line_coding->bParityType = uart_config.parity - 1;
 }
 
+
+
+
+void chry_dap_handle(void)
+{
+    uint32_t n;
+
+    // Process pending requests
+    while (USB_RequestCountI != USB_RequestCountO) {
+        // Handle Queue Commands
+        n = USB_RequestIndexO;
+        while (USB_Request[n][0] == ID_DAP_QueueCommands) {
+            USB_Request[n][0] = ID_DAP_ExecuteCommands;
+            n++;
+            if (n == DAP_PACKET_COUNT) {
+                n = 0U;
+            }
+            if (n == USB_RequestIndexI) {
+                // flags = osThreadFlagsWait(0x81U, osFlagsWaitAny, osWaitForever);
+                // if (flags & 0x80U) {
+                //     break;
+                // }
+            }
+        }
+
+        // Execute DAP Command (process request and prepare response)
+        USB_RespSize[USB_ResponseIndexI] =
+            (uint16_t)DAP_ExecuteCommand(USB_Request[USB_RequestIndexO], USB_Response[USB_ResponseIndexI]);
+
+        // Update Request Index and Count
+        USB_RequestIndexO++;
+        if (USB_RequestIndexO == DAP_PACKET_COUNT) {
+            USB_RequestIndexO = 0U;
+        }
+        USB_RequestCountO++;
+
+        if (USB_RequestIdle) {
+            if ((uint16_t)(USB_RequestCountI - USB_RequestCountO) != DAP_PACKET_COUNT) {
+                USB_RequestIdle = 0U;
+                usbd_ep_start_read(BUSID,WINUSB_OUT_EP, USB_Request[USB_RequestIndexI], DAP_PACKET_SIZE);
+            }
+        }
+
+        // Update Response Index and Count
+        USB_ResponseIndexI++;
+        if (USB_ResponseIndexI == DAP_PACKET_COUNT) {
+            USB_ResponseIndexI = 0U;
+        }
+        USB_ResponseCountI++;
+
+        if (USB_ResponseIdle) {
+            if (USB_ResponseCountI != USB_ResponseCountO) {
+                // Load data from response buffer to be sent back
+                n = USB_ResponseIndexO++;
+                if (USB_ResponseIndexO == DAP_PACKET_COUNT) {
+                    USB_ResponseIndexO = 0U;
+                }
+                USB_ResponseCountO++;
+                USB_ResponseIdle = 0U;
+                usbd_ep_start_write(BUSID ,WINUSB_IN_EP, USB_Response[n], USB_RespSize[n]);
+            }
+        }
+    }
+}
+
+
+
+void dap_task(void)
+{
+    while(1)
+    {
+        chry_dap_handle();
+        vTaskDelay(1);
+    }
+}
+
+
+
+
 /***************************************************************************************************
  * 功能描述:
  * 输入参数:
@@ -634,6 +771,10 @@ void usb_task(void)
      */
     chry_ringbuffer_init(&g_uarttx, uarttx_ringbuffer, CONFIG_UARTTX_RINGBUF_SIZE);
 
+    swd_init();
+
+    chry_dap_state_init();
+
     my_USB_init(BUSID, ESP_USBD_BASE);
     Uart_init();
 
@@ -657,6 +798,6 @@ void usb_task(void)
                 uart_write_bytes(ECHO_UART_PORT_NUM, (const char *)Txdata, len);
             }
         }
-        vTaskDelay(2);
+        vTaskDelay(1);
     }
 }
