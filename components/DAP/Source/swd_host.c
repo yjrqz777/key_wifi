@@ -779,7 +779,7 @@ static uint8_t swd_switch(uint16_t val)
 }
 
 // SWD Read ID
-static uint8_t swd_read_idcode(uint32_t *id)
+uint8_t swd_read_idcode(uint32_t *id)
 {
 	uint8_t tmp_in[1];
 	uint8_t tmp_out[4];

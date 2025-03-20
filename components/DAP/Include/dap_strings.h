@@ -86,11 +86,11 @@ __STATIC_INLINE uint8_t DAP_GetProductString (char *str) {
 \return String length (including terminating NULL character) or 0 (no string).
 */
 __STATIC_INLINE uint8_t DAP_GetSerNumString (char *str) {
-#ifdef CONFIG_TINYUSB_DESC_SERIAL_STRING
-    return return_dap_string(str, CONFIG_TINYUSB_DESC_SERIAL_STRING);
-#else
-    return (0U);
-#endif
+// #ifdef CONFIG_TINYUSB_DESC_SERIAL_STRING
+    return return_dap_string(str, "CONFIG_TINYUSB_DESC_SERIAL_STRING");
+// #else
+    // return (0U);
+// #endif
 }
 
 /** Get Target Device Vendor string.

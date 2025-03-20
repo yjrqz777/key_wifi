@@ -50,6 +50,9 @@ This information includes:
 #define __STATIC_INLINE static inline
 #endif
 
+
+extern char current_dap_mode;
+
 /// Processor Clock of the Cortex-M MCU used in the Debug Unit.
 /// This value is used to calculate the SWD/JTAG clock speed.
 #define CPU_CLOCK               240000000U        ///< Specifies the CPU Clock in Hz
@@ -213,6 +216,7 @@ Configures the DAP Hardware I/O pins for Serial Wire Debug (SWD) mode:
 */
 __STATIC_INLINE void PORT_SWD_SETUP(void)
 {
+	current_dap_mode = 1;
     gpio_pad_select_gpio(PIN_SWCLK);
 	gpio_set_direction(PIN_SWCLK, GPIO_MODE_INPUT_OUTPUT);
 	gpio_pad_select_gpio(PIN_SWDIO);
@@ -228,6 +232,7 @@ Disables the DAP Hardware I/O pins which configures:
 */
 __STATIC_INLINE void PORT_OFF(void)
 {
+	current_dap_mode = 0;
 	gpio_pad_select_gpio(PIN_SWCLK);
 	gpio_set_direction(PIN_SWCLK, GPIO_MODE_INPUT);
 	gpio_set_level(PIN_SWCLK, 0);

@@ -1,3 +1,12 @@
+/***************************************************************************************************
+ * Author: yjrqz777 3210551161@qq.com
+ * Date: 2025-03-19 19:37:18
+ * LastEditTime: 2025-03-20 20:26:09
+ * LastEditors: yjrqz777 3210551161@qq.com
+ * Description: 
+ * FilePath: /key_wifi/components/myusb/myusb.c
+ * @TOPTAND
+***************************************************************************************************/
 /*
  * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
  *
@@ -15,6 +24,7 @@
 #include <dirent.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/timers.h"
 #include "freertos/semphr.h"
 #include "esp_console.h"
 #include "esp_check.h"
@@ -179,7 +189,7 @@ static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t uarttx_ringbuffer[CONFIG_U
 // static volatile uint8_t usbrx_idle_flag = 0;
 // static volatile uint8_t usbtx_idle_flag = 0;
 static volatile uint8_t uarttx_buff_full = 0;
-
+char current_dap_mode = 0;
 chry_ringbuffer_t g_uarttx;
 // chry_ringbuffer_t g_usbrx;
 
@@ -322,12 +332,44 @@ const uint8_t winusbv2_descriptor[] = {
     /* String 2 (Product) */
     0x1E, /* bLength: 13 characters + 2 = 0x1A bytes */
     USB_DESCRIPTOR_TYPE_STRING,
-    'M', 0x00, 'y', 0x00, 'C', 0x00, 'u', 0x00, 's', 0x00, 't', 0x00, 'o', 0x00, 'm', 0x00, 'D', 0x00, 'e', 0x00, 'v', 0x00, 'i', 0x00, 'c', 0x00, 'e', 0x00,
+    'M', 0x00,
+    'y', 0x00,
+    'C', 0x00,
+    'u', 0x00,
+    's', 0x00,
+    't', 0x00,
+    'o', 0x00, 
+    'm', 0x00, 
+    'D', 0x00, 
+    'e', 0x00, 
+    'v', 0x00, 
+    'i', 0x00, 
+    'c', 0x00, 
+    'e', 0x00,
 
     /* String 3 (Serial) */
-    0x16, /* bLength */
+    0x2A, /* bLength */
     USB_DESCRIPTOR_TYPE_STRING,
-    '2', 0x00, '0', 0x00, '2', 0x00, '2', 0x00, '1', 0x00, '2', 0x00, '3', 0x00, '4', 0x00, '5', 0x00, '6', 0x00,
+    'y', 0x00, /* wcChar0 */
+    'j', 0x00, /* wcChar1 */
+    '2', 0x00, /* wcChar2 */
+    '2', 0x00, /* wcChar3 */
+    '1', 0x00, /* wcChar4 */
+    '2', 0x00, /* wcChar5 */
+    '3', 0x00, /* wcChar6 */
+    '4', 0x00, /* wcChar7 */
+    '5', 0x00, /* wcChar8 */
+    '6', 0x00, /* wcChar9 */
+    '2', 0x00, /* wcChar10 */
+    '4', 0x00, /* wcChar11 */
+    '2', 0x00, /* wcChar12 */
+    '2', 0x00, /* wcChar13 */
+    '1', 0x00, /* wcChar14 */
+    '2', 0x00, /* wcChar15 */
+    '3', 0x00, /* wcChar16 */
+    '4', 0x00, /* wcChar17 */
+    '5', 0x00, /* wcChar18 */
+    '6', 0x00, /* wcChar19 */
 
     /* String 4 (WinUSB接口名称) */
     0x18, /* bLength: 11字符 * 2 + 2 = 0x1A */
@@ -714,8 +756,43 @@ void chry_dap_handle(void)
 
 
 
+
+
+static TimerHandle_t xSWD_read_idcodeTimer;
+
+extern uint8_t swd_read_idcode(uint32_t *id);
+
+
+void SWD_Read_idcode()
+{
+    static uint32_t id = 0;
+
+    if(current_dap_mode == 1)
+    {
+        if(swd_read_idcode(&id))
+        {
+            printf("chip uid is %lx\r\n",id);
+        }
+        else
+        {
+            printf("no chip\r\n");
+            swd_init_debug();
+        }
+    }
+}
+
+
+
 void dap_task(void)
 {
+    xSWD_read_idcodeTimer = xTimerCreate(
+        "SWD_read_idcodeTimer",        // 定时器名字
+        pdMS_TO_TICKS(500),   // 定时器周期：500ms
+        pdTRUE,                // 自动重载
+        (void *)1,             // 定时器ID
+        SWD_Read_idcode         // 到期时回调函数
+    );
+    
     while(1)
     {
         chry_dap_handle();
