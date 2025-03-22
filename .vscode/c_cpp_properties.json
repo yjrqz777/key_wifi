@@ -6,8 +6,10 @@
                 "${workspaceFolder}/**",
                 "${workspaceFolder}/components/**",
                 // "${workspaceFolder}/build/config/**",
-                "~/esp-idf-v5.1.2/components/**"
-                // "~/esp/v5.1.5/esp-idf/components/**"
+                // "~/esp-idf-v5.1.2/components/**"
+                "~/esp/v5.1.5/esp-idf/components/**",
+                "${workspaceFolder}/components/cherry-embedded__cherryusb/core/**"
+
                 // "~/esp_idf/esp-idf-v5.1.2/**",
                 // "~/esp_idf/esp-idf-v5.1.2/components/freertos/**"
             ],

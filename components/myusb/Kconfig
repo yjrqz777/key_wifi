@@ -1,0 +1,14 @@
+menu "MY USB Configuration"
+    # 
+    # config CHERRYDAP_USE_MSC
+    #     bool "CHERRYDAP_USE_MSC"
+    #     # default n
+    #     # help
+    #     #     CHERRYDAP_USE_MSC.
+    # menuconfig CHERRYDAP_USE_MSC
+    #     bool "CherryUSB CHERRYDAP_USE_MSC"
+    #     default n
+
+
+
+endmenu

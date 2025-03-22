@@ -18,7 +18,11 @@
         "usbd_hid.h": "c",
         "chry_ringbuffer.h": "c",
         "dap.h": "c",
-        "dap_strings.h": "c"
+        "dap_strings.h": "c",
+        "sstream": "c",
+        "regex": "c",
+        "sdkconfig.h": "c",
+        "usbd_core.h": "c"
     },
     "idf.pythonInstallPath": "/usr/bin/python3",
     "files.exclude": {

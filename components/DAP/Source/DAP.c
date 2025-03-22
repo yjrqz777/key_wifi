@@ -70,7 +70,7 @@ static const char DAP_FW_Ver [] = DAP_FW_VER;
 //   return:  number of bytes in info data
 static uint8_t DAP_Info(uint8_t id, uint8_t *info) {
   uint8_t length = 0U;
-  printf("DAP_Info id is %d\r\n",id);
+  // printf("DAP_Info id is %d\r\n",id);
   switch (id) {
     case DAP_ID_VENDOR:
       length = DAP_GetVendorString((char *)info);

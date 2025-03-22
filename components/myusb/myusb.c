@@ -1,7 +1,7 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-03-19 19:37:18
- * LastEditTime: 2025-03-20 20:26:09
+ * LastEditTime: 2025-03-22 18:53:50
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/myusb/myusb.c
@@ -44,7 +44,9 @@
  */
 #include "usbd_core.h"
 #include "usbd_cdc_acm.h"
+#include "usbd_msc.h"
 #include "usbd_hid.h"
+
 #include "chry_ringbuffer.h"
 
 #include "DAP_config.h"
@@ -66,11 +68,15 @@ static const char *TAG = "Cherry USB";
 #define BUSID 0
 
 #define WINUSB_IN_EP 0x81
-#define WINUSB_OUT_EP 0x02
+#define WINUSB_OUT_EP 0x01
 
-#define CDC_IN_EP 0x83
-#define CDC_OUT_EP 0x04
-#define CDC_INT_EP 0x85
+#define CDC_IN_EP 0x82
+#define CDC_OUT_EP 0x02
+#define CDC_INT_EP 0x83
+
+#define MSC_IN_EP  0x84
+#define MSC_OUT_EP 0x04
+
 
 #define USBD_VID 0xFFFE
 #define USBD_PID 0xFFFF
@@ -83,8 +89,22 @@ static const char *TAG = "Cherry USB";
 #define DAP_DESCRIPTOR_LEN WINUSB_DESCRIPTOR_LEN
 
 
+// #define USB_CONFIG_SIZE (9 + DAP_DESCRIPTOR_LEN + CDC_ACM_DESCRIPTOR_LEN)
+// #define INTF_NUM 3
+
+
+#define CONFIG_CHERRYDAP_USE_MSC 1
+
+
+#ifndef CONFIG_CHERRYDAP_USE_MSC
 #define USB_CONFIG_SIZE (9 + DAP_DESCRIPTOR_LEN + CDC_ACM_DESCRIPTOR_LEN)
-#define INTF_NUM 3
+#define INTF_NUM        3
+#else
+#define USB_CONFIG_SIZE (9 + DAP_DESCRIPTOR_LEN + CDC_ACM_DESCRIPTOR_LEN + MSC_DESCRIPTOR_LEN)
+#define INTF_NUM        4
+#endif
+
+
 
 #ifdef CONFIG_USB_HS
 #define WINUSB_EP_MPS 512
@@ -322,6 +342,10 @@ const uint8_t winusbv2_descriptor[] = {
     /* Endpoint IN 1 */
     USB_ENDPOINT_DESCRIPTOR_INIT(WINUSB_IN_EP, USB_ENDPOINT_TYPE_BULK, WINUSB_EP_MPS, 0x00),
     CDC_ACM_DESCRIPTOR_INIT(0x01, CDC_INT_EP, CDC_OUT_EP, CDC_IN_EP, WINUSB_EP_MPS, 0x05),
+#ifdef CONFIG_CHERRYDAP_USE_MSC
+    MSC_DESCRIPTOR_INIT(0x03, MSC_OUT_EP, MSC_IN_EP, DAP_PACKET_SIZE, 0x00),
+#endif
+
     /* String 0 (LANGID) */
     USB_LANGID_INIT(USBD_LANGID_STRING),
     /* String 1 (Manufacturer) */
@@ -559,6 +583,7 @@ static struct usbd_endpoint cdc_in_ep = {
 struct usbd_interface winusb_intf;
 struct usbd_interface intf1;
 struct usbd_interface intf2;
+struct usbd_interface intf3;
 
 void my_USB_init(uint8_t busid, uintptr_t reg_base)
 {
@@ -582,6 +607,11 @@ void my_USB_init(uint8_t busid, uintptr_t reg_base)
     usbd_add_interface(busid, usbd_cdc_acm_init_intf(busid, &intf2));
     usbd_add_endpoint(busid, &cdc_out_ep);
     usbd_add_endpoint(busid, &cdc_in_ep);
+
+#ifdef CONFIG_CHERRYDAP_USE_MSC
+    usbd_add_interface(busid, usbd_msc_init_intf(busid, &intf3, MSC_OUT_EP, MSC_IN_EP));
+#endif
+
 
     usbd_initialize(busid, reg_base, usbd_event_handler);
 }
@@ -834,6 +864,46 @@ void Uart_init(void)
 
     // Configure a temporary buffer for the incoming data
 }
+
+
+
+#ifdef CONFIG_CHERRYDAP_USE_MSC
+#define BLOCK_SIZE  512
+#define BLOCK_COUNT 10
+
+typedef struct
+{
+    uint8_t BlockSpace[BLOCK_SIZE];
+} BLOCK_TYPE;
+
+BLOCK_TYPE mass_block[BLOCK_COUNT];
+
+void usbd_msc_get_cap(uint8_t busid, uint8_t lun, uint32_t *block_num, uint32_t *block_size)
+{
+    *block_num = 1000; //Pretend having so many buffer,not has actually.
+    *block_size = BLOCK_SIZE;
+    USB_LOG_RAW("usbd_msc_get_cap\r\n");
+}
+    
+
+int usbd_msc_sector_read(uint8_t busid, uint8_t lun, uint32_t sector, uint8_t *buffer, uint32_t length)
+{
+    USB_LOG_RAW("1sector:%ld\r\n", sector);
+    if (sector < 10)
+        memcpy(buffer, mass_block[sector].BlockSpace, length);
+    return 0;
+}
+
+int usbd_msc_sector_write(uint8_t busid, uint8_t lun, uint32_t sector, uint8_t *buffer, uint32_t length)
+{
+    USB_LOG_RAW("2sector:%ld\r\n", sector);
+    if (sector < 10)
+        memcpy(mass_block[sector].BlockSpace, buffer, length);
+    return 0;
+}
+#endif
+
+
 
 void usb_task(void)
 {
