@@ -27,7 +27,10 @@
         "esp_vfs.h": "c",
         "unistd.h": "c",
         "stdio.h": "c",
-        "esp_system.h": "c"
+        "esp_system.h": "c",
+        "bitset": "c",
+        "chrono": "c",
+        "algorithm": "c"
     },
     "idf.pythonInstallPath": "/usr/bin/python3",
     "files.exclude": {

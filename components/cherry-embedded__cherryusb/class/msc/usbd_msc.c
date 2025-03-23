@@ -726,6 +726,7 @@ static bool SCSI_processWrite(uint8_t busid, uint32_t nbytes)
 {
     uint32_t data_len = 0;
     USB_LOG_DBG("write lba:%d\r\n", g_usbd_msc[busid].start_sector);
+    // USB_LOG_INFO("write : %s",g_usbd_msc[busid].block_buffer);
 
     if (usbd_msc_sector_write(busid, g_usbd_msc[busid].cbw.bLUN, g_usbd_msc[busid].start_sector, g_usbd_msc[busid].block_buffer, nbytes) != 0) {
         SCSI_SetSenseData(busid, SCSI_KCQHE_WRITEFAULT);

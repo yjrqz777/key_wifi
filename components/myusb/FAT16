@@ -1,0 +1,89 @@
+在 FAT16 文件系统中，每个目录项（Directory Entry）占 ​32 字节，其字段解析规则严格遵循以下结构：
+
+​FAT16 目录项结构（32字节）​
+偏移	长度	字段名	解析规则
+0x00	8	主文件名（DIR_Name）	8字节ASCII字符，不足补空格（0x20），例如 "FILE "。
+0x08	3	扩展名（DIR_Ext）	3字节ASCII字符，不足补空格，例如 "TXT"。
+0x0B	1	属性（DIR_Attr）	位掩码标识文件类型（见下方属性表）。
+0x0C	10	保留字段	一般忽略，保留给系统使用。
+0x16	2	最后修改时间（DIR_Time）	16位小端序，按位分解为 小时(5位):分钟(6位):秒(5位*2)。
+0x18	2	最后修改日期（DIR_Date）	16位小端序，按位分解为 年(7位)-月(4位)-日(5位)。
+0x1A	2	起始簇号（DIR_FstClus）	16位小端序，表示文件数据起始簇号（簇0和簇1保留）。
+0x1C	4	文件大小（DIR_FileSize）	32位小端序，单位字节（0表示目录）。
+​关键字段解析方法
+1. ​文件名与扩展名（0x00-0x0A）​
+​主文件名：直接读取8字节，去除尾部空格。
+​扩展名：读取3字节，去除尾部空格。若扩展名为空，忽略点号。
+c
+char name[9], ext[4];
+memcpy(name, entry, 8);    name[8] = '\0';
+memcpy(ext, entry+8, 3);   ext[3] = '\0';
+trim_spaces(name);         // 去除尾部空格
+trim_spaces(ext);
+sprintf(filename, "%s.%s", name, ext);
+2. ​文件属性（0x0B）​
+位掩码	值	说明
+0x01	1	只读文件
+0x02	2	隐藏文件
+0x04	4	系统文件
+0x08	8	卷标（不属于文件）
+0x10	16	子目录
+0x20	32	普通文件
+0x40	64	未使用
+0x80	128	最后修改后未关闭标志
+3. ​时间戳解析（0x16-0x19）​
+​时间（2字节）​：
+
+c
+uint16_t time = (entry[0x17] << 8) | entry[0x16];
+int hour = (time >> 11) & 0x1F;     // 高5位
+int minute = (time >> 5) & 0x3F;    // 中间6位
+int second = (time & 0x1F) * 2;     // 低5位，实际秒为值*2
+​日期（2字节）​：
+
+c
+uint16_t date = (entry[0x19] << 8) | entry[0x18];
+int year = 1980 + ((date >> 9) & 0x7F); // 年基准为1980
+int month = (date >> 5) & 0x0F;
+int day = date & 0x1F;
+4. ​起始簇号（0x1A-0x1B）​
+小端序转换：
+c
+uint16_t start_cluster = (entry[0x1B] << 8) | entry[0x1A];
+5. ​文件大小（0x1C-0x1F）​
+小端序转换：
+c
+uint32_t file_size = (entry[0x1F] << 24) | (entry[0x1E] << 16) | 
+                    (entry[0x1D] << 8) | entry[0x1C];
+​完整解析示例
+假设目录项数据为：
+50 49 43 20 20 20 20 20 4A 50 47 20 20 00 00 00 00 00 00 00 00 00 00 00 00 00 00 0A 00 00 00 80 00
+
+偏移	值（HEX）	解析结果
+0x00	50 49 43 20 20 20 20 20	主名: "PIC " → "PIC"
+0x08	4A 50 47 20	扩展名: "JPG " → "JPG"
+0x0B	20	属性: 普通文件（0x20）
+0x16	00 00	时间: 00:00:00
+0x18	00 00	日期: 1980-01-01
+0x1A	0A 00	起始簇: 0x000A（小端序）
+0x1C	80 00 00 00	文件大小: 128 字节
+​代码集成
+在原有代码中添加详细解析逻辑：
+
+c
+// 解析时间戳
+uint16_t time = (entry[0x17] << 8) | entry[0x16];
+uint16_t date = (entry[0x19] << 8) | entry[0x18];
+int hour = (time >> 11) & 0x1F;
+int minute = (time >> 5) & 0x3F;
+int second = (time & 0x1F) * 2;
+int year = 1980 + ((date >> 9) & 0x7F);
+int month = (date >> 5) & 0x0F;
+int day = date & 0x1F;
+
+printf("创建时间: %04d-%02d-%02d %02d:%02d:%02d\n", year, month, day, hour, minute, second);
+​注意事项
+​卷标和目录：若属性为 0x08（卷标）或 0x10（目录），需特殊处理。
+​删除文件：首个字节为 0xE5 时表示文件已删除。
+​长文件名：FAT16 不支持原生长文件名，需依赖 VFAT 扩展（多个目录项组合）。
+通过以上规则，可完整解析 FAT16 目录项的全部信息。
