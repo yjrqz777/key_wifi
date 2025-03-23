@@ -1,11 +1,11 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-03-19 19:37:18
- * LastEditTime: 2025-03-22 18:53:50
+ * LastEditTime: 2025-03-23 16:29:51
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/myusb/myusb.c
- * @TOPTAND
+ * @YJRQZ777
 ***************************************************************************************************/
 /*
  * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
@@ -32,11 +32,21 @@
 #include "sdkconfig.h"
 #include "esp_log.h"
 
+
+
 #include "esp_task_wdt.h"
 #include "driver/uart.h"
 
-#include "myusb.h"
 
+#include "esp_vfs.h"
+#include "esp_vfs_fat.h"
+#include "esp_system.h"
+
+
+
+
+#include "myusb.h"
+#include "myfile.h"
 /*
  * Copyright (c) 2024, sakumisu
  *
@@ -78,8 +88,10 @@ static const char *TAG = "Cherry USB";
 #define MSC_OUT_EP 0x04
 
 
-#define USBD_VID 0xFFFE
-#define USBD_PID 0xFFFF
+// #define USBD_VID 0xFFFE
+// #define USBD_PID 0xFFFF
+#define USBD_VID           0x1234      // 自定义厂商ID
+#define USBD_PID           0x5678      // 自定义产品ID
 #define USBD_MAX_POWER 500
 #define USBD_LANGID_STRING 1033
 
@@ -878,33 +890,316 @@ typedef struct
 
 BLOCK_TYPE mass_block[BLOCK_COUNT];
 
+
+#define PARTITION_LABEL "storage"
+
+// Mount path for the partition
+const char *base_path = "/spiflash";
+
+// Handle of the wear levelling library instance
+static wl_handle_t s_wl_handle = WL_INVALID_HANDLE;
+static const esp_partition_t *msc_partition;
+void my_fatfs() 
+{
+
+
+    // 1. 查找FAT分区
+    msc_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
+                                            ESP_PARTITION_SUBTYPE_DATA_FAT,
+                                            PARTITION_LABEL);
+    assert(msc_partition != NULL);
+
+    ESP_LOGI(TAG, "Mounting FAT filesystem");
+    // To mount device we need name of device partition, define base_path
+    // and allow format partition in case if it is new one and was not formatted before
+    const esp_vfs_fat_mount_config_t mount_config = {
+            .max_files = 4,
+            .format_if_mount_failed = false,
+            .allocation_unit_size = CONFIG_WL_SECTOR_SIZE
+    };
+    esp_err_t err;
+    err = esp_vfs_fat_spiflash_mount(base_path, PARTITION_LABEL, &mount_config, &s_wl_handle);
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to mount FATFS (%s)", esp_err_to_name(err));
+        return;
+    }
+    ESP_LOGI(TAG, "Opening file");
+}
+
+
+
+
+/***************************************************************************************************
+ * 功能描述: 
+ * 输入参数: 
+ * 输出参数: 
+ * 返 回 值: 
+ * 其它说明: 
+***************************************************************************************************/
+
+
+
+
+#define SECTOR_SIZE         512     // 每扇区字节数
+#define CLUSTER_SIZE        4       // 每簇扇区数（簇大小 = 512 * 4=2048字节）
+#define RESERVED_SECTORS    1       // 保留扇区数（引导扇区）
+#define FAT_COPIES          1       // FAT表副本数（简化设计）
+#define ROOT_ENTRIES        512     // 根目录条目数（FAT16标准）
+#define SECTORS_PER_FAT     256     // FAT表占用的扇区数（需计算）
+
+// 总扇区数 = 64 *1024 * 1024 / 512 = 131072
+#define TOTAL_SECTORS       (131072)
+
+// 数据区起始扇区 = 保留扇区 + FAT表扇区数 * FAT_COPIES + 根目录占用扇区
+#define DATA_START_SECTOR   (RESERVED_SECTORS + (FAT_COPIES * SECTORS_PER_FAT) + (ROOT_ENTRIES * 32 + SECTOR_SIZE - 1) / SECTOR_SIZE)
+
+
+
+// 修改容量报告函数
 void usbd_msc_get_cap(uint8_t busid, uint8_t lun, uint32_t *block_num, uint32_t *block_size)
 {
-    *block_num = 1000; //Pretend having so many buffer,not has actually.
-    *block_size = BLOCK_SIZE;
-    USB_LOG_RAW("usbd_msc_get_cap\r\n");
+    *block_size = SECTOR_SIZE;
+    *block_num = TOTAL_SECTORS; // 131072 sectors * 512 = 64MB
 }
-    
 
-int usbd_msc_sector_read(uint8_t busid, uint8_t lun, uint32_t sector, uint8_t *buffer, uint32_t length)
+
+
+
+
+
+static const uint8_t fat_boot_sector[SECTOR_SIZE] = {
+    // 引导跳转指令（3字节）
+    0xEB, 0x3C, 0x90, 
+    // OEM名称（8字节）
+    'C', 'H', 'E', 'R', 'R', 'Y', ' ', ' ',
+    // 每扇区字节数（512）
+    [0x0B] = 0x00, 0x02, 
+    // 每簇扇区数
+    [0x0D] = CLUSTER_SIZE,
+    // 保留扇区数
+    [0x0E] = RESERVED_SECTORS & 0xFF, (RESERVED_SECTORS >> 8) & 0xFF,
+    // FAT表数量
+    [0x10] = FAT_COPIES,
+    // 根目录条目数
+    [0x11] = ROOT_ENTRIES & 0xFF, (ROOT_ENTRIES >> 8) & 0xFF,
+    // 总扇区数（16位，若超过则用32位字段）
+    [0x13] = (TOTAL_SECTORS > 65535) ? 0 : (TOTAL_SECTORS & 0xFF),
+    [0x14] = (TOTAL_SECTORS > 65535) ? 0 : ((TOTAL_SECTORS >> 8) & 0xFF),
+    // 介质类型（可移动磁盘）
+    [0x15] = 0xF8,
+    // 每FAT表扇区数（16位）
+    [0x16] = SECTORS_PER_FAT & 0xFF, (SECTORS_PER_FAT >> 8) & 0xFF,
+    // 每磁道扇区数（假设值）
+    [0x18] = 0x20, 0x00,
+    // 磁头数（假设值）
+    [0x1A] = 0x40, 0x00,
+    // 隐藏扇区数
+    [0x1C] = 0x00, 0x00, 0x00, 0x00,
+    // 总扇区数（32位）
+    [0x20] = TOTAL_SECTORS & 0xFF, (TOTAL_SECTORS >> 8) & 0xFF, 
+    (TOTAL_SECTORS >> 16) & 0xFF, (TOTAL_SECTORS >> 24) & 0xFF,
+    // 驱动器号（0x80为硬盘）
+    [0x24] = 0x80,
+    // 扩展引导标记
+    [0x26] = 0x29,
+    // 卷序列号（随机生成）
+    [0x27] = 0x12, 0x34, 0x56, 0x78,
+    // 卷标（11字节）
+    [0x2B] = 0xCE, 0xD2, 0xB5, 0xC4, 0xC5, 0xCC, 0xC5, 0xCC, 0x20, 0x20, 0x20,
+    // 文件系统类型（8字节）
+    [0x36] = 'F', 'A', 'T', '1', '6', ' ', ' ', ' ',
+    // 引导签名（0xAA55小端）
+    [0x1FE] = 0x55, 0xAA
+};
+
+
+/* 新增预置文本和文件元数据 */
+#define FILE_CONTENT      "123456789012345678901234567890123456789012345678901234567890\r\n"
+#define FILE_SIZE        (sizeof(FILE_CONTENT) - 1)  // 15字节
+
+// 定义文件占用的簇号（FAT簇号从2开始）
+#define FILE_START_CLUSTER  2
+
+/*----------------------------------------------------------
+                    修改根目录条目
+----------------------------------------------------------*/
+static uint8_t root_directory[ROOT_ENTRIES * 32] = {0};
+
+void create_readme_file_entry(void) {
+    // 指向根目录第一个条目
+    uint8_t *entry = root_directory;
+    
+    // 文件名（8.3格式）
+    memcpy(entry, "README  TXT", 11);  // 注意中间用空格填充
+    
+    // 文件属性：0x20表示普通文件
+    entry[0x0B] = 0x20;               
+    
+    // 起始簇号（小端）
+    entry[0x1A] = FILE_START_CLUSTER & 0xFF;        
+    entry[0x1B] = (FILE_START_CLUSTER >> 8) & 0xFF; 
+    
+    // 文件大小（小端）
+    entry[0x1C] = FILE_SIZE & 0xFF;                 
+    entry[0x1D] = (FILE_SIZE >> 8) & 0xFF;
+    entry[0x1E] = (FILE_SIZE >> 16) & 0xFF;
+    entry[0x1F] = (FILE_SIZE >> 24) & 0xFF;
+}
+
+/*----------------------------------------------------------
+                    更新FAT表
+----------------------------------------------------------*/
+static uint8_t fat_table[SECTORS_PER_FAT * SECTOR_SIZE] = {0};
+
+void init_fat_table(void) {
+    // FAT[0]和FAT[1]保留
+    fat_table[0] = 0xF8; 
+    fat_table[1] = 0xFF;
+    fat_table[2] = 0xFF; // FAT[1] = 0xFFFF
+    
+    // 文件占用的簇标记为结束
+    uint16_t *fat_entry = (uint16_t*)(fat_table + FILE_START_CLUSTER * 2);
+    *fat_entry = 0xFFFF; // 簇2结束
+}
+
+/*----------------------------------------------------------
+                    数据区内容生成
+----------------------------------------------------------*/
+static uint8_t file_data[CLUSTER_SIZE * SECTOR_SIZE] = {0};
+
+void prepare_file_content(void) {
+    // 将文本内容写入簇起始位置
+    memcpy(file_data, FILE_CONTENT, FILE_SIZE);
+    
+    // 剩余空间填充0（可选）
+    memset(file_data + FILE_SIZE, 0, sizeof(file_data) - FILE_SIZE);
+}
+
+/*----------------------------------------------------------
+                    修改MSC读取函数
+----------------------------------------------------------*/
+int usbd_msc_sector_read(uint8_t busid, uint8_t lun, uint32_t sector, 
+                        uint8_t *buffer, uint32_t length) 
 {
-    USB_LOG_RAW("1sector:%ld\r\n", sector);
-    if (sector < 10)
-        memcpy(buffer, mass_block[sector].BlockSpace, length);
+    // 1. 引导扇区
+    if (sector == 0) { 
+        memcpy(buffer, fat_boot_sector, SECTOR_SIZE);
+        return 0;
+    }
+
+    // 2. FAT表区域
+    if (sector >= RESERVED_SECTORS && 
+        sector < RESERVED_SECTORS + (FAT_COPIES * SECTORS_PER_FAT)) 
+    {
+        uint32_t offset = (sector - RESERVED_SECTORS) * SECTOR_SIZE;
+        memcpy(buffer, fat_table + offset, length);
+        return 0;
+    }
+
+    // 3. 根目录区
+    uint32_t root_start = RESERVED_SECTORS + (FAT_COPIES * SECTORS_PER_FAT);
+    if (sector >= root_start && 
+        sector < root_start + (ROOT_ENTRIES * 32 / SECTOR_SIZE)) 
+    {
+        uint32_t offset = (sector - root_start) * SECTOR_SIZE;
+        memcpy(buffer, root_directory + offset, length);
+        return 0;
+    }
+
+    // 4. 数据区处理
+    uint32_t data_sector = sector - DATA_START_SECTOR;
+    uint32_t cluster_num = data_sector / CLUSTER_SIZE + 2; // 簇号从2开始
+    
+    // 检查是否在文件簇范围内
+    if (cluster_num == FILE_START_CLUSTER) {
+        uint32_t cluster_offset = (data_sector % CLUSTER_SIZE) * SECTOR_SIZE;
+        memcpy(buffer, file_data + cluster_offset, length);
+    } else {
+        memset(buffer, 0, length); // 其他区域返回空
+    }
+    
     return 0;
 }
 
+// 创建"README.TXT"条目
+void create_sample_file(void) {
+    uint8_t *entry = root_directory;
+    memcpy(entry, "README  TXT", 11); // 8.3格式文件名
+    entry[0x0B] = 0x20;               // 普通文件
+    entry[0x1A] = 0x01;               // 起始簇号（低字节）
+    entry[0x1B] = 0x00;               // 起始簇号（高字节）
+    entry[0x1C] = 0x0D;               // 文件大小（低字节）
+    entry[0x1D] = 0x00;               // 文件大小（高字节）
+}
+
+/***************************************************************************************************
+ * 功能描述: 
+ * 输入参数: 
+ * 输出参数: 
+ * 返 回 值: 
+ * 其它说明: 
+***************************************************************************************************/
+
+
+
+
+
+// void usbd_msc_get_cap(uint8_t busid, uint8_t lun, uint32_t *block_num, uint32_t *block_size)
+// {
+//     *block_num = 100; //Pretend having so many buffer,not has actually.
+//     *block_size = BLOCK_SIZE;
+//     USB_LOG_RAW("usbd_msc_get_cap\r\n");
+// }
+    
+
+// int usbd_msc_sector_read(uint8_t busid, uint8_t lun, uint32_t sector, uint8_t *buffer, uint32_t length)
+// {
+//     USB_LOG_RAW("read: lun : %d, sector : %ld , buffer : %s, length : %ld\r\n",lun, sector, buffer, length);
+//     // if (sector < 100)
+//     //     memcpy(buffer, mass_block[sector].BlockSpace, length);
+//     return 0;
+
+
+//     // 从Flash读取数据
+//     esp_err_t ret = esp_partition_read(msc_partition, 
+//                                       sector * BLOCK_SIZE,
+//                                       buffer, 
+//                                       length);
+//     // return (ret == ESP_OK) ? 0 : -1;
+// }
+
+
 int usbd_msc_sector_write(uint8_t busid, uint8_t lun, uint32_t sector, uint8_t *buffer, uint32_t length)
 {
-    USB_LOG_RAW("2sector:%ld\r\n", sector);
-    if (sector < 10)
-        memcpy(mass_block[sector].BlockSpace, buffer, length);
+    // USB_LOG_RAW("write: lun=%d, sector=%lu, length=%lu\r\n", lun, sector, length);
+    
+    // // 将二进制数据转为HEX字符串（最多显示前64字节）
+    // #define HEX_DUMP_MAX_LEN 64
+    // char hex_buf[HEX_DUMP_MAX_LEN * 3 + 1] = {0}; // 每字节3字符（2 HEX + 空格）
+    // uint32_t dump_len = (length > HEX_DUMP_MAX_LEN) ? HEX_DUMP_MAX_LEN : length;
+    
+    // for (uint32_t i = 0; i < dump_len; i++) {
+    //     sprintf(hex_buf + i * 3, "%02X ", buffer[i]);
+    // }
+    
+    // // 若数据过长添加截断提示
+    // if (length > HEX_DUMP_MAX_LEN) {
+    //     strcat(hex_buf, "...(truncated)");
+    // }
+    
+    // USB_LOG_RAW("Data: %s\r\n", hex_buf);
     return 0;
 }
 #endif
 
-
-
+/***************************************************************************************************
+ * 功能描述: 
+ * 输入参数: 
+ * 输出参数: 
+ * 返 回 值: 
+ * 其它说明: 
+***************************************************************************************************/
 void usb_task(void)
 {
     // esp_err_t ret;
@@ -919,12 +1214,18 @@ void usb_task(void)
      * 例如 4、16、32、64、128、1024、8192、65536等
      */
     chry_ringbuffer_init(&g_uarttx, uarttx_ringbuffer, CONFIG_UARTTX_RINGBUF_SIZE);
-
     swd_init();
-
     chry_dap_state_init();
+    // my_fatfs();
 
+    create_readme_file_entry(); // 创建文件条目
+    init_fat_table();           // 初始化FAT表
+    prepare_file_content();     // 准备文件内容
+
+
+    
     my_USB_init(BUSID, ESP_USBD_BASE);
+    
     Uart_init();
 
     while (1)

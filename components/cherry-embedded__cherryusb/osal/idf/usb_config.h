@@ -84,7 +84,7 @@
 // #define CONFIG_USBDEV_MSC_POLLING
 
 /* move msc read & write from isr to thread */
-// #define CONFIG_USBDEV_MSC_THREAD
+#define CONFIG_USBDEV_MSC_THREAD
 
 #ifndef CONFIG_USBDEV_MSC_PRIO
 #define CONFIG_USBDEV_MSC_PRIO 4

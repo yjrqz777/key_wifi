@@ -22,7 +22,12 @@
         "sstream": "c",
         "regex": "c",
         "sdkconfig.h": "c",
-        "usbd_core.h": "c"
+        "usbd_core.h": "c",
+        "string.h": "c",
+        "esp_vfs.h": "c",
+        "unistd.h": "c",
+        "stdio.h": "c",
+        "esp_system.h": "c"
     },
     "idf.pythonInstallPath": "/usr/bin/python3",
     "files.exclude": {
