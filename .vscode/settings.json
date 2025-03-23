@@ -30,7 +30,10 @@
         "esp_system.h": "c",
         "bitset": "c",
         "chrono": "c",
-        "algorithm": "c"
+        "algorithm": "c",
+        "semphr.h": "c",
+        "task.h": "c",
+        "myusb.h": "c"
     },
     "idf.pythonInstallPath": "/usr/bin/python3",
     "files.exclude": {
@@ -39,6 +42,7 @@
     "search.exclude": {
     "managed_components": false
     // "./node_modules": false
-    }
+    },
+    "C_Cpp.errorSquiggles": "disabled"
 
 }

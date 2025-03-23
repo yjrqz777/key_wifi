@@ -1,7 +1,7 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-03-19 19:37:18
- * LastEditTime: 2025-03-23 18:36:47
+ * LastEditTime: 2025-03-23 23:01:09
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/myusb/myusb.c
@@ -38,12 +38,6 @@
 #include "driver/uart.h"
 
 
-#include "esp_vfs.h"
-#include "esp_vfs_fat.h"
-#include "esp_system.h"
-
-
-
 
 #include "myusb.h"
 #include "myfile.h"
@@ -63,82 +57,63 @@
 #include "DAP.h"
 #include "swd_host.h"
 
-#define ECHO_TEST_TXD (4)
-#define ECHO_TEST_RXD (5)
-#define ECHO_TEST_RTS (UART_PIN_NO_CHANGE)
-#define ECHO_TEST_CTS (UART_PIN_NO_CHANGE)
 
-#define ECHO_UART_PORT_NUM 2
-#define ECHO_UART_BAUD_RATE 115200
-
-#define BUF_SIZE (512)
-
-static const char *TAG = "Cherry USB";
-
-#define BUSID 0
-
-#define WINUSB_IN_EP 0x81
-#define WINUSB_OUT_EP 0x01
-
-#define CDC_IN_EP 0x82
-#define CDC_OUT_EP 0x02
-#define CDC_INT_EP 0x83
-
-#define MSC_IN_EP  0x84
-#define MSC_OUT_EP 0x04
-
-
-// #define USBD_VID 0xFFFE
-// #define USBD_PID 0xFFFF
-#define USBD_VID           0x1234      // 自定义厂商ID
-#define USBD_PID           0x5678      // 自定义产品ID
-#define USBD_MAX_POWER 500
-#define USBD_LANGID_STRING 1033
-
-
-#define WINUSB_DESCRIPTOR_LEN (9 + 7 + 7)
-
-#define DAP_DESCRIPTOR_LEN WINUSB_DESCRIPTOR_LEN
-
-
-// #define USB_CONFIG_SIZE (9 + DAP_DESCRIPTOR_LEN + CDC_ACM_DESCRIPTOR_LEN)
-// #define INTF_NUM 3
-
-
-#define CONFIG_CHERRYDAP_USE_MSC 1
-
-
-#ifndef CONFIG_CHERRYDAP_USE_MSC
-#define USB_CONFIG_SIZE (9 + DAP_DESCRIPTOR_LEN + CDC_ACM_DESCRIPTOR_LEN)
-#define INTF_NUM        3
-#else
-#define USB_CONFIG_SIZE (9 + DAP_DESCRIPTOR_LEN + CDC_ACM_DESCRIPTOR_LEN + MSC_DESCRIPTOR_LEN)
-#define INTF_NUM        4
-#endif
+static const char *TAG = "my USB";
 
 
 
-#ifdef CONFIG_USB_HS
-#define WINUSB_EP_MPS 512
-#else
-#define WINUSB_EP_MPS 64
-#endif
+#define CONFIG_UARTTX_RINGBUF_SIZE (1024)
+// #define CONFIG_USBRX_RINGBUF_SIZE  (8 * 1024)
 
-#define USBD_WINUSB_VENDOR_CODE 0x20
 
-#define USBD_WEBUSB_ENABLE 0
-#define USBD_BULK_ENABLE 1
-#define USBD_WINUSB_ENABLE 1
 
-/* WinUSB Microsoft OS 2.0 descriptor sizes */
-#define WINUSB_DESCRIPTOR_SET_HEADER_SIZE 10
-#define WINUSB_FUNCTION_SUBSET_HEADER_SIZE 8
-#define WINUSB_FEATURE_COMPATIBLE_ID_SIZE 20
+__attribute__ ((aligned (4))) extern USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t USB_Request[DAP_PACKET_COUNT][DAP_PACKET_SIZE];  // Request  Buffer
+__attribute__ ((aligned (4))) extern USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t USB_Response[DAP_PACKET_COUNT][DAP_PACKET_SIZE]; // Response Buffer
+__attribute__ ((aligned (4))) extern uint16_t USB_RespSize[DAP_PACKET_COUNT];       
+/***************************************************************************************************/
+/* global */
+char current_dap_mode = 0;
+/***************************************************************************************************/
 
-#define FUNCTION_SUBSET_LEN 160
-#define DEVICE_INTERFACE_GUIDS_FEATURE_LEN 132
 
-#define USBD_WINUSB_DESC_SET_LEN (WINUSB_DESCRIPTOR_SET_HEADER_SIZE + USBD_WEBUSB_ENABLE * FUNCTION_SUBSET_LEN + USBD_BULK_ENABLE * FUNCTION_SUBSET_LEN)
+/***************************************************************************************************/
+/* part */
+static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t uarttx_ringbuffer[CONFIG_UARTTX_RINGBUF_SIZE];
+// static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t usbrx_ringbuffer[CONFIG_USBRX_RINGBUF_SIZE];
+// static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t usb_tmpbuffer[DAP_PACKET_SIZE];
+
+// static volatile uint8_t usbrx_idle_flag = 0;
+// static volatile uint8_t usbtx_idle_flag = 0;
+static volatile uint8_t uarttx_buff_full = 0;
+chry_ringbuffer_t g_uarttx;
+// chry_ringbuffer_t g_usbrx;
+
+
+// USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t usb_read_buffer[2048];
+USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t cdc_read_buffer[WINUSB_EP_MPS];
+// USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t write_buffer[2048];
+
+volatile bool ep_tx_busy_flag = false;
+
+/***************************************************************************************************/
+
+
+
+
+void SetUSB_RequestIdle(uint8_t idle);
+void dap_in_callback(uint8_t busid, uint8_t ep, uint32_t nbytes);
+void dap_out_callback(uint8_t busid, uint8_t ep, uint32_t nbytes);
+
+
+void chry_dap_state_init(void);
+void create_readme_file_entry(void);
+void init_fat_table(void);
+void prepare_file_content(void);
+
+
+
+
+
 
 __ALIGN_BEGIN const uint8_t USBD_WinUSBDescriptorSetDescriptor[] = {
     WBVAL(WINUSB_DESCRIPTOR_SET_HEADER_SIZE), /* wLength */
@@ -208,24 +183,9 @@ __ALIGN_BEGIN const uint8_t USBD_WinUSBDescriptorSetDescriptor[] = {
                                USBD_WEBUSB_DESC_LEN * USBD_WEBUSB_ENABLE + \
                                USBD_WINUSB_DESC_LEN * USBD_WINUSB_ENABLE)
 
-#define CONFIG_UARTTX_RINGBUF_SIZE (1024)
-// #define CONFIG_USBRX_RINGBUF_SIZE  (8 * 1024)
 
-// #define GD32_UID_BASE        0x1FFF7A10UL           /*!< Unique device ID register base address */
-// #define SERIAL_NUMBER_INDEX  208 // 序列号在数组中的起始索引
 
-static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t uarttx_ringbuffer[CONFIG_UARTTX_RINGBUF_SIZE];
-// static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t usbrx_ringbuffer[CONFIG_USBRX_RINGBUF_SIZE];
-// static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t usb_tmpbuffer[DAP_PACKET_SIZE];
 
-// static volatile uint8_t usbrx_idle_flag = 0;
-// static volatile uint8_t usbtx_idle_flag = 0;
-static volatile uint8_t uarttx_buff_full = 0;
-char current_dap_mode = 0;
-chry_ringbuffer_t g_uarttx;
-// chry_ringbuffer_t g_usbrx;
-
-// __attribute__ ((aligned (4))) static uint8_t _usbtx_buffer[CONFIG_UARTRX_RINGBUF_SIZE];
 
 __ALIGN_BEGIN const uint8_t USBD_BinaryObjectStoreDescriptor[] = {
     0x05,                         /* bLength */
@@ -363,7 +323,15 @@ const uint8_t winusbv2_descriptor[] = {
     /* String 1 (Manufacturer) */
     0x14,                       /* bLength */
     USB_DESCRIPTOR_TYPE_STRING, /* bDescriptorType */
-    'C', 0x00, 'h', 0x00, 'e', 0x00, 'r', 0x00, 'r', 0x00, 'y', 0x00, 'U', 0x00, 'S', 0x00, 'B', 0x00,
+    'C', 0x00, 
+    'h', 0x00, 
+    'e', 0x00, 
+    'r', 0x00, 
+    'r', 0x00, 
+    'y', 0x00, 
+    'U', 0x00, 
+    'S', 0x00, 
+    'B', 0x00,
 
     /* String 2 (Product) */
     0x1E, /* bLength: 13 characters + 2 = 0x1A bytes */
@@ -410,12 +378,31 @@ const uint8_t winusbv2_descriptor[] = {
     /* String 4 (WinUSB接口名称) */
     0x18, /* bLength: 11字符 * 2 + 2 = 0x1A */
     USB_DESCRIPTOR_TYPE_STRING,
-    'M', 0x00, 'y', 0x00, 'W', 0x00, 'i', 0x00, 'n', 0x00, 'U', 0x00, 'S', 0x00, 'B', 0x00, ' ', 0x00, 'I', 0x00, 'F', 0x00,
+    'M', 0x00,  /* wcChar0 */
+    'y', 0x00,  /* wcChar1 */
+    'W', 0x00,  /* wcChar2 */
+    'i', 0x00,  /* wcChar3 */     
+    'n', 0x00,  /* wcChar4 */
+    'U', 0x00,  /* wcChar5 */
+    'S', 0x00,  /* wcChar6 */
+    'B', 0x00,  /* wcChar7 */
+    ' ', 0x00,  /* wcChar8 */
+    'I', 0x00,  /* wcChar9 */
+    'F', 0x00,  /* wcChar10 */
 
     /* String 5 (CDC接口名称) */
     0x16, /* bLength: 10字符 * 2 + 2 = 0x18 */
     USB_DESCRIPTOR_TYPE_STRING,
-    'M', 0x00, 'y', 0x00, 'C', 0x00, 'D', 0x00, 'C', 0x00, ' ', 0x00, 'P', 0x00, 'o', 0x00, 'r', 0x00, 't', 0x00,
+    'M', 0x00, /* wcChar0 */
+    'y', 0x00, /* wcChar1 */
+    'C', 0x00, /* wcChar2 */
+    'D', 0x00, /* wcChar3 */
+    'C', 0x00, /* wcChar4 */
+    ' ', 0x00, /* wcChar5 */
+    'P', 0x00, /* wcChar6 */
+    'o', 0x00, /* wcChar7 */
+    'r', 0x00, /* wcChar8 */
+    't', 0x00, /* wcChar9 */
 
 #ifdef CONFIG_USB_HS
     /* Device Qualifier */
@@ -436,29 +423,15 @@ const uint8_t winusbv2_descriptor[] = {
 
 
 
-static volatile uint16_t USB_RequestIndexI; // Request  Index In
-static volatile uint16_t USB_RequestIndexO; // Request  Index Out
-static volatile uint16_t USB_RequestCountI; // Request  Count In
-static volatile uint16_t USB_RequestCountO; // Request  Count Out
-static volatile uint8_t USB_RequestIdle;    // Request  Idle  Flag
-
-static volatile uint16_t USB_ResponseIndexI; // Response Index In
-static volatile uint16_t USB_ResponseIndexO; // Response Index Out
-static volatile uint16_t USB_ResponseCountI; // Response Count In
-static volatile uint16_t USB_ResponseCountO; // Response Count Out
-static volatile uint8_t USB_ResponseIdle;    // Response Idle  Flag
-
-__attribute__ ((aligned (4))) static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t USB_Request[DAP_PACKET_COUNT][DAP_PACKET_SIZE];  // Request  Buffer
-__attribute__ ((aligned (4))) static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t USB_Response[DAP_PACKET_COUNT][DAP_PACKET_SIZE]; // Response Buffer
-__attribute__ ((aligned (4))) static uint16_t USB_RespSize[DAP_PACKET_COUNT];           
-
-
-
-USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t usb_read_buffer[2048];
-USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t cdc_read_buffer[WINUSB_EP_MPS];
-USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t write_buffer[2048];
-
-volatile bool ep_tx_busy_flag = false;
+/***************************************************************************************************
+ * 功能描述: 
+ * 输入参数: 
+ * 输出参数: 
+ * 返 回 值: 
+ * 其它说明: 
+ * param {uint8_t} busid
+ * param {uint8_t} event
+***************************************************************************************************/
 
 static void usbd_event_handler(uint8_t busid, uint8_t event)
 {
@@ -477,9 +450,7 @@ static void usbd_event_handler(uint8_t busid, uint8_t event)
     case USBD_EVENT_CONFIGURED:
         ep_tx_busy_flag = false;
         /* setup first out ep read transfer */
-        USB_RequestIdle = 0U;
-
-        // usbd_ep_start_read(DAP_OUT_EP, USB_Request[0], DAP_PACKET_SIZE);
+        SetUSB_RequestIdle(0);
 
         usbd_ep_start_read(busid, WINUSB_OUT_EP, USB_Request[0], DAP_PACKET_SIZE);
         usbd_ep_start_read(busid, CDC_OUT_EP, cdc_read_buffer, WINUSB_EP_MPS);
@@ -494,41 +465,17 @@ static void usbd_event_handler(uint8_t busid, uint8_t event)
     }
 }
 
-void dap_out_callback(uint8_t busid, uint8_t ep, uint32_t nbytes)
-{
-    if (USB_Request[USB_RequestIndexI][0] == ID_DAP_TransferAbort) {
-        DAP_TransferAbort = 1U;
-    } else {
-        USB_RequestIndexI++;
-        if (USB_RequestIndexI == DAP_PACKET_COUNT) {
-            USB_RequestIndexI = 0U;
-        }
-        USB_RequestCountI++;
-    }
 
-    // Start reception of next request packet
-    if ((uint16_t)(USB_RequestCountI - USB_RequestCountO) != DAP_PACKET_COUNT) {
-        usbd_ep_start_read(busid, WINUSB_OUT_EP, USB_Request[USB_RequestIndexI], DAP_PACKET_SIZE);
-    } else {
-        USB_RequestIdle = 1U;
-    }
-}
-
-void dap_in_callback(uint8_t busid, uint8_t ep, uint32_t nbytes)
-{
-    if (USB_ResponseCountI != USB_ResponseCountO) {
-        // Load data from response buffer to be sent back
-        usbd_ep_start_write(busid, WINUSB_IN_EP, USB_Response[USB_ResponseIndexO], USB_RespSize[USB_ResponseIndexO]);
-        USB_ResponseIndexO++;
-        if (USB_ResponseIndexO == DAP_PACKET_COUNT) {
-            USB_ResponseIndexO = 0U;
-        }
-        USB_ResponseCountO++;
-    } else {
-        USB_ResponseIdle = 1U;
-    }
-}
-
+/***************************************************************************************************
+ * 功能描述: 
+ * 输入参数: 
+ * 输出参数: 
+ * 返 回 值: 
+ * 其它说明: 
+ * param {uint8_t} busid
+ * param {uint8_t} ep
+ * param {uint32_t} nbytes
+***************************************************************************************************/
 void usbd_cdc_acm_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
     //  USB_LOG_RAW("actual out len:%d\r\n", nbytes);
@@ -543,7 +490,16 @@ void usbd_cdc_acm_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
         uarttx_buff_full = 1;
     }
 }
-
+/***************************************************************************************************
+ * 功能描述: 
+ * 输入参数: 
+ * 输出参数: 
+ * 返 回 值: 
+ * 其它说明: 
+ * param {uint8_t} busid
+ * param {uint8_t} ep
+ * param {uint32_t} nbytes
+***************************************************************************************************/
 void usbd_cdc_acm_in(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
     //  USB_LOG_RAW("actual in len:%d\r\n", nbytes);
@@ -559,23 +515,13 @@ void usbd_cdc_acm_in(uint8_t busid, uint8_t ep, uint32_t nbytes)
     }
 }
 
-static void chry_dap_state_init(void)
-{
-    // Initialize variables
-    USB_RequestIndexI = 0U;
-    USB_RequestIndexO = 0U;
-    USB_RequestCountI = 0U;
-    USB_RequestCountO = 0U;
-    USB_RequestIdle = 1U;
-    USB_ResponseIndexI = 0U;
-    USB_ResponseIndexO = 0U;
-    USB_ResponseCountI = 0U;
-    USB_ResponseCountO = 0U;
-    USB_ResponseIdle = 1U;
-}
-
-
-
+/***************************************************************************************************
+ * 功能描述: 
+ * 输入参数: 
+ * 输出参数: 
+ * 返 回 值: 
+ * 其它说明: 
+***************************************************************************************************/
 struct usbd_endpoint winusb_out_ep1 = {
     .ep_addr = WINUSB_OUT_EP,
     .ep_cb = dap_out_callback};
@@ -596,11 +542,20 @@ struct usbd_interface winusb_intf;
 struct usbd_interface intf1;
 struct usbd_interface intf2;
 struct usbd_interface intf3;
-
+/***************************************************************************************************
+ * 功能描述: 
+ * 输入参数: 
+ * 输出参数: 
+ * 返 回 值: 
+ * 其它说明: 
+ * param {uint8_t} busid
+ * param {uintptr_t} reg_base
+***************************************************************************************************/
 void my_USB_init(uint8_t busid, uintptr_t reg_base)
 {
 #ifdef CONFIG_USBDEV_ADVANCE_DESC
     usbd_desc_register(busid, &winusbv2_descriptor);
+        dsa
 #else
     usbd_desc_register(busid, winusbv2_descriptor);
 #endif
@@ -624,37 +579,45 @@ void my_USB_init(uint8_t busid, uintptr_t reg_base)
     usbd_add_interface(busid, usbd_msc_init_intf(busid, &intf3, MSC_OUT_EP, MSC_IN_EP));
 #endif
 
-
     usbd_initialize(busid, reg_base, usbd_event_handler);
 }
 
-volatile uint8_t dtr_enable = 0;
+// volatile uint8_t dtr_enable = 0;
 
-void usbd_cdc_acm_set_dtr(uint8_t busid, uint8_t intf, bool dtr)
-{
-    if (dtr)
-    {
-        dtr_enable = 1;
-    }
-    else
-    {
-        dtr_enable = 0;
-    }
-}
+// void usbd_cdc_acm_set_dtr(uint8_t busid, uint8_t intf, bool dtr)
+// {
+//     if (dtr)
+//     {
+//         dtr_enable = 1;
+//     }
+//     else
+//     {
+//         dtr_enable = 0;
+//     }
+// }
 
-void cdc_acm_data_send_with_dtr_test(uint8_t busid)
-{
-    if (dtr_enable)
-    {
-        // // memset(&write_buffer[10], 'a', 2038);
-        // ep_tx_busy_flag = true;
-        // usbd_ep_start_write(busid, CDC_IN_EP, write_buffer, 2048);
-        // while (ep_tx_busy_flag)
-        // {
-        // }
-    }
-}
+// void cdc_acm_data_send_with_dtr_test(uint8_t busid)
+// {
+//     if (dtr_enable)
+//     {
+//         // // memset(&write_buffer[10], 'a', 2038);
+//         // ep_tx_busy_flag = true;
+//         // usbd_ep_start_write(busid, CDC_IN_EP, write_buffer, 2048);
+//         // while (ep_tx_busy_flag)
+//         // {
+//         // }
+//     }
+// }
 
+/***************************************************************************************************
+ * 功能描述: 
+ * 输入参数: 
+ * 输出参数: 
+ * 返 回 值: 
+ * 其它说明: 
+ * param {uint8_t} class
+ * param {uint8_t} data
+***************************************************************************************************/
 uint8_t Detection_Effect(uint8_t class, uint8_t data)
 {
     // uart_word_length_t
@@ -731,120 +694,6 @@ void usbd_cdc_acm_get_line_coding(uint8_t busid, uint8_t intf, struct cdc_line_c
     // line_coding->bParityType = uart_config.parity - 1;
 }
 
-
-
-
-void chry_dap_handle(void)
-{
-    uint32_t n;
-
-    // Process pending requests
-    while (USB_RequestCountI != USB_RequestCountO) {
-        // Handle Queue Commands
-        n = USB_RequestIndexO;
-        while (USB_Request[n][0] == ID_DAP_QueueCommands) {
-            USB_Request[n][0] = ID_DAP_ExecuteCommands;
-            n++;
-            if (n == DAP_PACKET_COUNT) {
-                n = 0U;
-            }
-            if (n == USB_RequestIndexI) {
-                // flags = osThreadFlagsWait(0x81U, osFlagsWaitAny, osWaitForever);
-                // if (flags & 0x80U) {
-                //     break;
-                // }
-            }
-        }
-
-        // Execute DAP Command (process request and prepare response)
-        USB_RespSize[USB_ResponseIndexI] =
-            (uint16_t)DAP_ExecuteCommand(USB_Request[USB_RequestIndexO], USB_Response[USB_ResponseIndexI]);
-
-        // Update Request Index and Count
-        USB_RequestIndexO++;
-        if (USB_RequestIndexO == DAP_PACKET_COUNT) {
-            USB_RequestIndexO = 0U;
-        }
-        USB_RequestCountO++;
-
-        if (USB_RequestIdle) {
-            if ((uint16_t)(USB_RequestCountI - USB_RequestCountO) != DAP_PACKET_COUNT) {
-                USB_RequestIdle = 0U;
-                usbd_ep_start_read(BUSID,WINUSB_OUT_EP, USB_Request[USB_RequestIndexI], DAP_PACKET_SIZE);
-            }
-        }
-
-        // Update Response Index and Count
-        USB_ResponseIndexI++;
-        if (USB_ResponseIndexI == DAP_PACKET_COUNT) {
-            USB_ResponseIndexI = 0U;
-        }
-        USB_ResponseCountI++;
-
-        if (USB_ResponseIdle) {
-            if (USB_ResponseCountI != USB_ResponseCountO) {
-                // Load data from response buffer to be sent back
-                n = USB_ResponseIndexO++;
-                if (USB_ResponseIndexO == DAP_PACKET_COUNT) {
-                    USB_ResponseIndexO = 0U;
-                }
-                USB_ResponseCountO++;
-                USB_ResponseIdle = 0U;
-                usbd_ep_start_write(BUSID ,WINUSB_IN_EP, USB_Response[n], USB_RespSize[n]);
-            }
-        }
-    }
-}
-
-
-
-
-
-static TimerHandle_t xSWD_read_idcodeTimer;
-
-extern uint8_t swd_read_idcode(uint32_t *id);
-
-
-void SWD_Read_idcode()
-{
-    static uint32_t id = 0;
-
-    if(current_dap_mode == 1)
-    {
-        if(swd_read_idcode(&id))
-        {
-            printf("chip uid is %lx\r\n",id);
-        }
-        else
-        {
-            printf("no chip\r\n");
-            swd_init_debug();
-        }
-    }
-}
-
-
-
-void dap_task(void)
-{
-    xSWD_read_idcodeTimer = xTimerCreate(
-        "SWD_read_idcodeTimer",        // 定时器名字
-        pdMS_TO_TICKS(500),   // 定时器周期：500ms
-        pdTRUE,                // 自动重载
-        (void *)1,             // 定时器ID
-        SWD_Read_idcode         // 到期时回调函数
-    );
-    
-    while(1)
-    {
-        chry_dap_handle();
-        vTaskDelay(1);
-    }
-}
-
-
-
-
 /***************************************************************************************************
  * 功能描述:
  * 输入参数:
@@ -877,506 +726,6 @@ void Uart_init(void)
     // Configure a temporary buffer for the incoming data
 }
 
-
-
-#ifdef CONFIG_CHERRYDAP_USE_MSC
-#define BLOCK_SIZE  512
-#define BLOCK_COUNT 10
-
-typedef struct
-{
-    uint8_t BlockSpace[BLOCK_SIZE];
-} BLOCK_TYPE;
-
-BLOCK_TYPE mass_block[BLOCK_COUNT];
-
-
-#define PARTITION_LABEL "storage"
-
-// Mount path for the partition
-const char *base_path = "/spiflash";
-
-// Handle of the wear levelling library instance
-static wl_handle_t s_wl_handle = WL_INVALID_HANDLE;
-static const esp_partition_t *msc_partition;
-void my_fatfs() 
-{
-
-
-    // 1. 查找FAT分区
-    msc_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
-                                            ESP_PARTITION_SUBTYPE_DATA_FAT,
-                                            PARTITION_LABEL);
-    assert(msc_partition != NULL);
-
-    ESP_LOGI(TAG, "Mounting FAT filesystem");
-    // To mount device we need name of device partition, define base_path
-    // and allow format partition in case if it is new one and was not formatted before
-    const esp_vfs_fat_mount_config_t mount_config = {
-            .max_files = 4,
-            .format_if_mount_failed = false,
-            .allocation_unit_size = CONFIG_WL_SECTOR_SIZE
-    };
-    esp_err_t err;
-    err = esp_vfs_fat_spiflash_mount(base_path, PARTITION_LABEL, &mount_config, &s_wl_handle);
-
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to mount FATFS (%s)", esp_err_to_name(err));
-        return;
-    }
-    ESP_LOGI(TAG, "Opening file");
-}
-
-
-
-
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
-***************************************************************************************************/
-
-
-
-
-#define SECTOR_SIZE         512     // 每扇区字节数
-#define CLUSTER_SIZE        4       // 每簇扇区数（簇大小 = 512 * 4=2048字节）
-#define RESERVED_SECTORS    1       // 保留扇区数（引导扇区）
-#define FAT_COPIES          1       // FAT表副本数（简化设计）
-#define ROOT_ENTRIES        512     // 根目录条目数（FAT16标准）
-#define SECTORS_PER_FAT     10     // FAT表占用的扇区数（需计算）
-
-// 总扇区数 = 64 *1024 * 1024 / 512 = 131072
-#define TOTAL_SECTORS       (10240)
-
-/*
-DATA_START_SECTOR = 
-    保留扇区数（RESERVED_SECTORS） + 
-    FAT表数量（FAT_COPIES） × 单个FAT表占用的扇区数（SECTORS_PER_FAT） + 
-    根目录占用的扇区数
-
-组件	            计算方式	                                            示例值（5MB FAT12）
-​保留扇区数	        RESERVED_SECTORS	                                    1（引导扇区）
-​FAT表总扇区数	    FAT_COPIES × SECTORS_PER_FAT	                        1 × 10 = 10
-​根目录扇区数	    (ROOT_ENTRIES × 32 + SECTOR_SIZE - 1) / SECTOR_SIZE	    (512 × 32 + 512 -1) / 512 = ​32
-​数据区起始扇区	    1 + 10 + 32 = 43	                                     ​43
-
-*/
-
-#define DATA_START_SECTOR   (43)
-
-
-
-// 修改容量报告函数
-void usbd_msc_get_cap(uint8_t busid, uint8_t lun, uint32_t *block_num, uint32_t *block_size)
-{
-    *block_size = SECTOR_SIZE;
-    *block_num = TOTAL_SECTORS; // 131072 sectors * 512 = 64MB
-}
-
-static const uint8_t fat_boot_sector[SECTOR_SIZE] = {
-    // 引导跳转指令（3字节）
-    0xEB, 0x3C, 0x90, 
-    // OEM名称（8字节）
-    'C', 'H', 'E', 'R', 'R', 'Y', ' ', ' ',
-    // 每扇区字节数（512）
-    [0x0B] = 0x00, 0x02, 
-    // 每簇扇区数
-    [0x0D] = CLUSTER_SIZE,
-    // 保留扇区数
-    [0x0E] = RESERVED_SECTORS & 0xFF, (RESERVED_SECTORS >> 8) & 0xFF,
-    // FAT表数量
-    [0x10] = FAT_COPIES,
-    // 根目录条目数
-    [0x11] = ROOT_ENTRIES & 0xFF, (ROOT_ENTRIES >> 8) & 0xFF,
-    // 总扇区数（16位，若超过则用32位字段）
-    [0x13] = (TOTAL_SECTORS > 65535) ? 0 : (TOTAL_SECTORS & 0xFF),
-    [0x14] = (TOTAL_SECTORS > 65535) ? 0 : ((TOTAL_SECTORS >> 8) & 0xFF),
-    // 介质类型（可移动磁盘）
-    [0x15] = 0xF8,
-    // 每FAT表扇区数（16位）
-    [0x16] = SECTORS_PER_FAT & 0xFF, (SECTORS_PER_FAT >> 8) & 0xFF,
-    // 每磁道扇区数（假设值）
-    [0x18] = 0x20, 0x00,
-    // 磁头数（假设值）
-    [0x1A] = 0x40, 0x00,
-    // 隐藏扇区数
-    [0x1C] = 0x00, 0x00, 0x00, 0x00,
-    // 总扇区数（32位）
-    [0x20] = TOTAL_SECTORS & 0xFF, (TOTAL_SECTORS >> 8) & 0xFF, 
-    (TOTAL_SECTORS >> 16) & 0xFF, (TOTAL_SECTORS >> 24) & 0xFF,
-    // 驱动器号（0x80为硬盘）
-    [0x24] = 0x80,
-    // 扩展引导标记
-    [0x26] = 0x29,
-    // 卷序列号（随机生成）
-    [0x27] = 0x12, 0x34, 0x56, 0x78,
-    // 卷标（11字节）
-    [0x2B] = 0xCE, 0xD2, 0xB5, 0xC4, 0xC5, 0xCC, 0xC5, 0xCC, 0x20, 0x20, 0x20,
-    // 文件系统类型（8字节）
-    [0x36] = 'F', 'A', 'T', '1', '2', ' ', ' ', ' ',
-    // 引导签名（0xAA55小端）
-    [0x1FE] = 0x55, 0xAA
-};
-
-
-/* 新增预置文本和文件元数据 */
-#define FILE_CONTENT      "123456789012345678901234567890123456789012345678901234567890\r\n"
-#define FILE_SIZE        (sizeof(FILE_CONTENT) - 1)  // 15字节
-
-// 定义文件占用的簇号（FAT簇号从2开始）
-#define FILE_START_CLUSTER  2
-
-/*----------------------------------------------------------
-                    修改根目录条目
-----------------------------------------------------------*/
-static uint8_t root_directory[ROOT_ENTRIES * 32] = {0};
-
-void create_readme_file_entry(void) {
-    // 指向根目录第一个条目
-    uint8_t *entry = root_directory;
-    
-    // 文件名（8.3格式）
-    memcpy(entry, "README  TXT", 11);  // 注意中间用空格填充
-    
-    // 文件属性：0x20表示普通文件
-    entry[0x0B] = 0x20;               
-    
-    // 起始簇号（小端）
-    entry[0x1A] = FILE_START_CLUSTER & 0xFF;        
-    entry[0x1B] = (FILE_START_CLUSTER >> 8) & 0xFF; 
-    
-    // 文件大小（小端）
-    entry[0x1C] = FILE_SIZE & 0xFF;                 
-    entry[0x1D] = (FILE_SIZE >> 8) & 0xFF;
-    entry[0x1E] = (FILE_SIZE >> 16) & 0xFF;
-    entry[0x1F] = (FILE_SIZE >> 24) & 0xFF;
-}
-
-/*----------------------------------------------------------
-                    更新FAT表
-----------------------------------------------------------*/
-static uint8_t fat_table[SECTORS_PER_FAT * SECTOR_SIZE] = {0};
-
-void init_fat_table(void) {
-    // FAT[0]和FAT[1]保留
-    fat_table[0] = 0xF8; 
-    fat_table[1] = 0xFF;
-    fat_table[2] = 0xFF; // FAT[1] = 0xFFFF
-    
-    // 文件占用的簇2标记为结束（0xFFF）
-    // FAT表项布局：| 字节0 | 字节1 | 字节2 | -> 表项0（低12位）和表项1（高12位）
-    // 簇2对应表项起始位置：字节3（簇0-1占3字节）
-    fat_table[3] = 0xFF; // 0xFFF的存储方式
-    fat_table[4] = 0x0F; 
-}
-
-/*----------------------------------------------------------
-                    数据区内容生成
-----------------------------------------------------------*/
-static uint8_t file_data[CLUSTER_SIZE * SECTOR_SIZE] = {0};
-
-void prepare_file_content(void) {
-    // 将文本内容写入簇起始位置
-    memcpy(file_data, FILE_CONTENT, FILE_SIZE);
-    
-    // 剩余空间填充0（可选）
-    memset(file_data + FILE_SIZE, 0, sizeof(file_data) - FILE_SIZE);
-}
-
-/*----------------------------------------------------------
-                    修改MSC读取函数
-----------------------------------------------------------*/
-int usbd_msc_sector_read(uint8_t busid, uint8_t lun, uint32_t sector, 
-                        uint8_t *buffer, uint32_t length) 
-{
-    // USB_LOG_RAW("read: lun=%d, sector=%lu, buffer = %s, length=%lu\r\n", lun, sector, buffer, length);
-    // 1. 引导扇区
-    if (sector == 0) { 
-        memcpy(buffer, fat_boot_sector, SECTOR_SIZE);
-        return 0;
-    }
-
-    // 2. FAT表区域
-    if (sector >= RESERVED_SECTORS && 
-        sector < RESERVED_SECTORS + (FAT_COPIES * SECTORS_PER_FAT)) 
-    {
-        uint32_t offset = (sector - RESERVED_SECTORS) * SECTOR_SIZE;
-        memcpy(buffer, fat_table + offset, length);
-        return 0;
-    }
-
-    // 3. 根目录区
-    uint32_t root_start = RESERVED_SECTORS + (FAT_COPIES * SECTORS_PER_FAT);
-    if (sector >= root_start && 
-        sector < root_start + (ROOT_ENTRIES * 32 / SECTOR_SIZE)) 
-    {
-        uint32_t offset = (sector - root_start) * SECTOR_SIZE;
-        memcpy(buffer, root_directory + offset, length);
-        return 0;
-    }
-
-    // 4. 数据区处理
-    uint32_t data_sector = sector - DATA_START_SECTOR;
-    uint32_t cluster_num = data_sector / CLUSTER_SIZE + 2; // 簇号从2开始
-    
-    // 检查是否在文件簇范围内
-    if (cluster_num == FILE_START_CLUSTER) {
-        uint32_t cluster_offset = (data_sector % CLUSTER_SIZE) * SECTOR_SIZE;
-        memcpy(buffer, file_data + cluster_offset, length);
-    } else {
-        memset(buffer, 0, length); // 其他区域返回空
-    }
-    
-    return 0;
-}
-
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
-***************************************************************************************************/
-
-
-
-
-
-// void usbd_msc_get_cap(uint8_t busid, uint8_t lun, uint32_t *block_num, uint32_t *block_size)
-// {
-//     *block_num = 100; //Pretend having so many buffer,not has actually.
-//     *block_size = BLOCK_SIZE;
-//     USB_LOG_RAW("usbd_msc_get_cap\r\n");
-// }
-    
-
-// int usbd_msc_sector_read(uint8_t busid, uint8_t lun, uint32_t sector, uint8_t *buffer, uint32_t length)
-// {
-//     USB_LOG_RAW("read: lun : %d, sector : %ld , buffer : %s, length : %ld\r\n",lun, sector, buffer, length);
-//     // if (sector < 100)
-//     //     memcpy(buffer, mass_block[sector].BlockSpace, length);
-//     return 0;
-
-
-//     // 从Flash读取数据
-//     esp_err_t ret = esp_partition_read(msc_partition, 
-//                                       sector * BLOCK_SIZE,
-//                                       buffer, 
-//                                       length);
-//     // return (ret == ESP_OK) ? 0 : -1;
-// }
-
-
-
-// FAT表项设置（FAT12格式）
-void set_fat_entry(uint16_t cluster, uint16_t value) {
-    uint32_t index = cluster * 3 / 2; // FAT12每项占1.5字节
-    if (cluster % 2 == 0) {
-        fat_table[index] = value & 0xFF;
-        fat_table[index + 1] = (fat_table[index + 1] & 0xF0) | ((value >> 8) & 0x0F);
-    } else {
-        fat_table[index] = (fat_table[index] & 0x0F) | ((value << 4) & 0xF0);
-        fat_table[index + 1] = (value >> 4) & 0xFF;
-    }
-}
-
-void update_fat_table(uint16_t start_cluster, uint32_t file_size) {
-    // 计算需要的簇数
-    uint32_t clusters_needed = (file_size + CLUSTER_SIZE * SECTOR_SIZE - 1) / (CLUSTER_SIZE * SECTOR_SIZE);
-    
-    // 遍历簇链并更新FAT
-    for (uint16_t i = 0; i < clusters_needed; i++) {
-        uint16_t current_cluster = start_cluster + i;
-        if (i == clusters_needed - 1) {
-            // 最后一个簇标记为结束
-            set_fat_entry(current_cluster, 0xFFF);
-        } else {
-            // 指向下一个簇
-            set_fat_entry(current_cluster, current_cluster + 1);
-        }
-    }
-}
-
-void handle_data_write(uint32_t cluster, uint32_t length) {
-    // 计算需要的簇数
-    uint32_t clusters_needed = (length + CLUSTER_SIZE * SECTOR_SIZE - 1) / (CLUSTER_SIZE * SECTOR_SIZE);
-    
-    // 更新FAT表
-    update_fat_table(cluster, clusters_needed * CLUSTER_SIZE * SECTOR_SIZE);
-}
-
-// void parse_fat16_directory(uint8_t *buffer, uint32_t length) {
-//     for (int i = 0; i < length; i += 32) {
-//         uint8_t *entry = buffer + i;
-
-        
-        
-//         if (entry[0] == 0x00 || entry[0] == 0xE5) continue; // 跳过空或已删除的条目
-
-//         char filename[13];
-//         memcpy(filename, entry, 8);          // 主名
-//         filename[8] = '.';
-//         memcpy(filename + 9, entry + 8, 3); // 扩展名
-//         filename[12] = '\0';
-
-//         uint8_t attr = entry[11];
-//         if (!(attr & 0x08) && !(attr & 0x10)) { // 普通文件（非卷标或目录）
-//             printf("文件名: %s\n", filename);
-//         }
-//     }
-
-
-// }
-
-// void parse_fat16_directory(uint8_t *buffer, uint32_t length) {
-//     for (int i = 0; i < length; i += 32) {
-//         uint8_t *entry = buffer + i;
-        
-//         /* 跳过空项和已删除项（保持原有逻辑） */
-//         if (entry[0] == 0x00 || entry[0] == 0xE5) continue;
-
-//         /* 提取文件名（保持原有逻辑） */
-//         char filename[13];
-//         memcpy(filename, entry, 8);
-//         filename[8] = '.';
-//         memcpy(filename + 9, entry + 8, 3);
-//         filename[12] = '\0';
-
-//         /* 去除文件名中的多余空格（新增） */
-//         // 处理主名中的尾部空格
-//         for (int j = 7; j >= 0; j--) {
-//             if (filename[j] != ' ') break;
-//             filename[j] = '\0';
-//         }
-//         // 处理扩展名中的尾部空格
-//         if (filename[9] == ' ') {
-//             filename[8] = '\0';  // 隐藏扩展名点号
-//         } else {
-//             for (int j = 11; j >= 9; j--) {
-//                 if (filename[j] != ' ') break;
-//                 filename[j] = '\0';
-//             }
-//         }
-
-//         /* 解析文件属性（新增） */
-//         uint8_t attr = entry[11];
-//         const char *attr_str = "";
-//         if (attr & 0x01) attr_str = "[隐藏]";
-//         if (attr & 0x02) attr_str = "[系统]";
-//         if (attr & 0x04) attr_str = "[卷标]";
-//         if (attr & 0x10) attr_str = "[目录]";
-//         if (attr == 0x20) attr_str = "[普通文件]";
-
-//         /* 解析起始簇号（新增） */
-//         uint16_t start_cluster = (entry[0x1A] << 8) | entry[0x1B];  // 小端转主机序
-
-//         /* 解析文件大小（新增） */
-//         uint32_t file_size = (entry[0x1F] << 24) | (entry[0x1E] << 16) | 
-//                             (entry[0x1D] << 8) | entry[0x1C]; // 小端转主机序
-
-//         /* 格式化文件大小（新增） */
-//         char size_str[16];
-//         if (file_size < 1024) {
-//             snprintf(size_str, sizeof(size_str), "%lu bytes", file_size);
-//         } else if (file_size < 1024 * 1024) {
-//             snprintf(size_str, sizeof(size_str), "%.1f KB", file_size / 1024.0);
-//         } else {
-//             snprintf(size_str, sizeof(size_str), "%.1f MB", file_size / (1024.0 * 1024));
-//         }
-
-//         /* 过滤非普通文件（保持原有逻辑） */
-//         if (!(attr & 0x08) && !(attr & 0x10)) {
-//             printf("文件名: %-12s 属性: %-10s 起始簇: 0x%04X  大小: %s\n", 
-//                   filename, attr_str, start_cluster, size_str);
-//         }
-//     }
-// }
-
-
-void parse_fat16_directory(uint8_t *buffer, uint32_t length) {
-    for (int i = 0; i < length; i += 32) {
-        uint8_t *entry = buffer + i;
-        
-        // 跳过空项和已删除项（原有逻辑）
-        if (entry[0] == 0x00 || entry[0] == 0xE5) continue;
-
-        // 文件名解析（原有逻辑）
-        char filename[13];
-        memcpy(filename, entry, 8);
-        filename[8] = '.';
-        memcpy(filename + 9, entry + 8, 3);
-        filename[12] = '\0';
-
-        // 清理文件名空格（原有逻辑）
-        for (int j = 7; j >= 0; j--) {
-            if (filename[j] != ' ') break;
-            filename[j] = '\0';
-        }
-        if (filename[9] == ' ') {
-            filename[8] = '\0';
-        } else {
-            for (int j = 11; j >= 9; j--) {
-                if (filename[j] != ' ') break;
-                filename[j] = '\0';
-            }
-        }
-
-        // 属性过滤（原有逻辑）
-        uint8_t attr = entry[11];
-        if (!(attr & 0x08) && !(attr & 0x10)) { // 仅处理普通文件
-            printf("文件名: %-12s | 属性: 0x%02X | Entry数据: ", filename, attr);
-            
-            // 新增：完整32字节十六进制输出
-            for (int j = 0; j < 32; j++) {
-                printf("%02X ", entry[j]);
-                if (j == 7 || j == 15 || j == 23) printf("| "); // 按8字节分段
-            }
-            printf("\n");
-        }
-    }
-}
-
-
-
-
-
-int usbd_msc_sector_write(uint8_t busid, uint8_t lun, uint32_t sector, uint8_t *buffer, uint32_t length)
-{
-    // USB_LOG_RAW("write: lun=%d, sector=%lu, buffer = %s, length=%lu\r\n", lun, sector, buffer, length);
-    
-    // 检测根目录区写入
-    uint32_t root_start = RESERVED_SECTORS + (FAT_COPIES * SECTORS_PER_FAT);
-    uint32_t root_sectors = (ROOT_ENTRIES * 32 + SECTOR_SIZE - 1) / SECTOR_SIZE;
-    
-    // if (sector >= root_start && sector < root_start + root_sectors) {
-    //     // USB_LOG_RAW("write: lun=%d, sector=%lu, buffer = %s, length=%lu\r\n", lun, sector, buffer, length);
-
-    //     // 更新根目录内存数据
-    //     uint32_t offset = (sector - root_start) * SECTOR_SIZE;
-    //     memcpy(root_directory + offset, buffer, length);
-
-    //     // 解析新文件条目
-    //     uint8_t *entry = root_directory + offset;
-    //     uint16_t start_cluster = *((uint16_t*)(entry + 0x1A)); // 起始簇号
-    //     uint32_t file_size = *((uint32_t*)(entry + 0x1C));     // 文件大小
-
-    //     // 更新FAT表（分配簇）
-    //     update_fat_table(start_cluster, file_size);
-    // }
-
-    if (sector >= root_start && sector < root_start + root_sectors) {
-        parse_fat16_directory(buffer, length);
-    }
-
-    return 0;
-}
-
-
-#endif
-
 /***************************************************************************************************
  * 功能描述: 
  * 输入参数: 
@@ -1402,14 +751,12 @@ void usb_task(void)
     chry_dap_state_init();
     // my_fatfs();
 
-    // create_readme_file_entry(); // 创建文件条目
+    create_readme_file_entry(); // 创建文件条目
     init_fat_table();           // 初始化FAT表
-    // prepare_file_content();     // 准备文件内容
+    prepare_file_content();     // 准备文件内容
 
 
-    
     my_USB_init(BUSID, ESP_USBD_BASE);
-    
     Uart_init();
 
     while (1)
