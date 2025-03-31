@@ -52,48 +52,103 @@ static tRgbKeyDef AllQueue={0, 0, 0, 0};
 
 
 
+    // WIFI_EVENT_SCAN_DONE,                /**< Finished scanning AP */
+    // WIFI_EVENT_STA_START,                /**< Station start */
+    // WIFI_EVENT_STA_STOP,                 /**< Station stop */
+    // WIFI_EVENT_STA_CONNECTED,            /**< Station connected to AP */
+    // WIFI_EVENT_STA_DISCONNECTED,         /**< Station disconnected from AP */
+    // WIFI_EVENT_STA_AUTHMODE_CHANGE,      /**< the auth mode of AP connected by device's station changed */
+
+
+/***************************************************************************************************
+ * 功能描述: 
+ * 输入参数: 
+ * 输出参数: 
+ * 返 回 值: 
+ * 其它说明: 
+***************************************************************************************************/
 static void wifi_event_handler(void* arg, esp_event_base_t event_base,
                                     int32_t event_id, void* event_data)
 {
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_START) {
-        ESP_LOGI(TAG, "AP 模式已开启");
-        u8APFg = 1;
-    }
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STOP) {
-        ESP_LOGI(TAG, "AP 模式已停止");
-        u8APFg = 0;
-    }
-    if (event_id == WIFI_EVENT_AP_STACONNECTED) {
-        wifi_event_ap_staconnected_t* event = (wifi_event_ap_staconnected_t*) event_data;
-        ESP_LOGI(TAG, "station "MACSTR" join, AID=%d",
-                 MAC2STR(event->mac), event->aid);
-        AllQueue.r = 0;
-        AllQueue.g = 0;
-        AllQueue.b = 15;
-        u8Fg = 2;
-    } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
-        wifi_event_ap_stadisconnected_t* event = (wifi_event_ap_stadisconnected_t*) event_data;
-        ESP_LOGI(TAG, "station "MACSTR" leave, AID=%d",
-                 MAC2STR(event->mac), event->aid);
-        AllQueue.r = 15;
-        AllQueue.g = 10;
-        AllQueue.b = 0;
-        u8TimeMin = TIMEOFF;  // 定时时间清除
-        u8TimeSec = 0;  // 定时时间清除
-        u8Fg = 0;
-    }else if (event_id == WIFI_EVENT_AP_START)
+    ESP_LOGI("----------", "event_base=%s, event_id=%ld", (char *)event_base, event_id);
+    if (event_base == WIFI_EVENT)
     {
-        ESP_LOGI(TAG, "station++++++++++++++++++++++++++++++++++++++++++++++++");
-        AllQueue.r = 0;
-        AllQueue.g = 15;
-        AllQueue.b = 0;
-    }else if (event_id == WIFI_EVENT_AP_STOP)
-    {
-        ESP_LOGI(TAG, "station------------------------------------------------");
-        AllQueue.r = 15;
-        AllQueue.g = 0;
-        AllQueue.b = 0;
+        if (event_id == WIFI_EVENT_AP_STACONNECTED) 
+        {
+            wifi_event_ap_staconnected_t* event = (wifi_event_ap_staconnected_t*) event_data;
+            ESP_LOGI(TAG, "station "MACSTR" join, AID=%d",
+                    MAC2STR(event->mac), event->aid);
+            AllQueue.r = 0;
+            AllQueue.g = 0;
+            AllQueue.b = 15;
+            u8Fg = 2;
+        } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) 
+        {
+            wifi_event_ap_stadisconnected_t* event = (wifi_event_ap_stadisconnected_t*) event_data;
+            ESP_LOGI(TAG, "station "MACSTR" leave, AID=%d",
+                    MAC2STR(event->mac), event->aid);
+            AllQueue.r = 15;
+            AllQueue.g = 10;
+            AllQueue.b = 0;
+            u8TimeMin = TIMEOFF;  // 定时时间清除
+            u8TimeSec = 0;  // 定时时间清除
+            u8Fg = 0;
+        }else if (event_id == WIFI_EVENT_AP_START)
+        {
+            ESP_LOGI(TAG, "station++++++++++++++++++++++++++++++++++++++++++++++++");
+            ESP_LOGI(TAG, "AP 模式已开启");
+            u8APFg = 1;
+            AllQueue.r = 0;
+            AllQueue.g = 15;
+            AllQueue.b = 0;
+        }else if (event_id == WIFI_EVENT_AP_STOP)
+        {
+            ESP_LOGI(TAG, "station------------------------------------------------");
+            ESP_LOGI(TAG, "AP 模式已停止");
+            u8APFg = 0;
+            AllQueue.r = 15;
+            AllQueue.g = 0;
+            AllQueue.b = 0;
+        }
+        else if (event_id == WIFI_EVENT_SCAN_DONE) 
+        {
+            ESP_LOGI(TAG, "SAT 扫描完成");
+            wifi_event_sta_scan_done_t* event = (wifi_event_sta_scan_done_t*) event_data;
+            if (event->status == 0) 
+            {
+                ESP_LOGI(TAG, "扫描到 %d 个AP", event->number);
+            } 
+            else 
+            {
+                ESP_LOGI(TAG, "扫描AP失败");
+            }
+        }
+        else if (event_id == WIFI_EVENT_STA_START) 
+        {
+            ESP_LOGI(TAG, "SAT START");
+            // wifi_event_ap_staconnected_t* event = (wifi_event_ap_staconnected_t*) event_data;
+            esp_wifi_connect();
+        }
+        else if (event_id == WIFI_EVENT_STA_CONNECTED) 
+        {
+            ESP_LOGI(TAG, "SAT 连接到AP");
+        }
+        else if (event_id == WIFI_EVENT_STA_DISCONNECTED)
+        {
+            ESP_LOGI(TAG, "SAT 断开连接到AP");
+            esp_wifi_connect();
+        }
     }
+
+    if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) 
+    {
+        ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
+        ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
+        // s_retry_num = 0;
+        // xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+    }
+
+
     // if (AllQueue.r || AllQueue.g || AllQueue.b)
     // {
     //     if (xQueueSend(xQueueLed, &AllQueue, portMAX_DELAY) == pdTRUE)
@@ -116,13 +171,19 @@ void wifi_init_softap(void)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
+
+    esp_event_handler_instance_t instance_got_ip;
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
                                                         ESP_EVENT_ANY_ID,
                                                         &wifi_event_handler,
                                                         NULL,
                                                         NULL));
-
-    wifi_config_t wifi_config = {
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
+                                                        IP_EVENT_STA_GOT_IP,
+                                                        &wifi_event_handler,
+                                                        NULL,
+                                                        &instance_got_ip));
+    wifi_config_t AP_wifi_config = {
         .ap = {
             .ssid = EXAMPLE_ESP_WIFI_SSID,
             .ssid_len = strlen(EXAMPLE_ESP_WIFI_SSID),
@@ -140,13 +201,35 @@ void wifi_init_softap(void)
             },
         },
     };
-    if (strlen(EXAMPLE_ESP_WIFI_PASS) == 0) {
-        wifi_config.ap.authmode = WIFI_AUTH_OPEN;
-    }
+    // if (strlen(EXAMPLE_ESP_WIFI_PASS) == 0) {
+    //     AP_wifi_config.ap.authmode = WIFI_AUTH_OPEN;
+    // }
+    wifi_config_t SAT_wifi_config = {
+        .sta = {
+            .ssid = "test2",
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
-    // ESP_ERROR_CHECK(esp_wifi_start());
+            // .ssid_len = strlen("天翼2.4G"),
+            .password = "12345678",
+            .scan_method = WIFI_FAST_SCAN,
+            /* Authmode threshold resets to WPA2 as default if password matches WPA2 standards (pasword len => 8).
+             * If you want to connect the device to deprecated WEP/WPA networks, Please set the threshold value
+             * to WIFI_AUTH_WEP/WIFI_AUTH_WPA_PSK and set the password with length and format matching to
+             * WIFI_AUTH_WEP/WIFI_AUTH_WPA_PSK standards.
+             */
+            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
+            // .sae_pwe_h2e = ESP_WIFI_SAE_MODE,
+            // .sae_h2e_identifier = EXAMPLE_H2E_IDENTIFIER,
+        },
+
+    };
+
+
+
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &AP_wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &SAT_wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
 
     ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s password:%s channel:%d",
              EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS, EXAMPLE_ESP_WIFI_CHANNEL);
