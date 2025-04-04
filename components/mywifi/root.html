@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <!-- import CSS -->
+  <!-- <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css"> -->
+  <title>ESP32 控制台</title>
+  <style>
+    .slider-container { margin: 20px; }
+    .slider { width: 80%; margin: 10px 0; }
+    .color-box {
+        width: 100px; height: 100px;
+        border: 2px solid #333;
+        margin-top: 20px;
+    }
+</style>
+<style>
+  /* CSS样式 */
+  form {
+    max-width: 400px;
+    /* margin: 10px auto 5px; auto 实现块级元素水平居中 */
+    margin: 20px 40px 20px;
+    padding: 20px;
+    background: #f9f9f9;
+    border-radius: 12px;
+  }
+  button {
+    max-width: 100px;
+    margin: 20px 40px 20px;
+    padding: 15px;
+    background: #f9f9f9;
+    border-radius: 12px;
+  }
+
+
+  label { 
+    display: block; 
+    margin: 1px auto 5px; /* auto 实现块级元素水平居中 */
+    color: #555; 
+  }
+  input[type="text"], input[type="password"] {
+    width: 90%;
+    padding: 10px 10px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    font-size: 16px;
+    transition: all 0.3s ease;
+  }
+  input:focus {
+    border-color: #4CAF50;
+    box-shadow: 0 0 9px rgba(76, 175, 80, 0.3);
+    outline: none;
+  }
+  ::placeholder {
+    color: #bbb;
+    font-style: italic;
+  }
+  /* colorPreview{
+    width: 10px; height: 10px;
+    border: 2px solid #333;
+    margin-top: 20px;} */
+</style>
+</head>
+<body>
+<div class="slider-container">
+    <!-- RGB 颜色控制 -->
+    <h3>RGB 颜色调节</h3>
+    <input type="range" min="0" max="255" value="0" class="slider" id="red" data-param="r">
+    <span id="redValue">0</span><br>
+    
+    <input type="range" min="0" max="255" value="0" class="slider" id="green" data-param="g">
+    <span id="greenValue">0</span><br>
+    
+    <input type="range" min="0" max="255" value="0" class="slider" id="blue" data-param="b">
+    <span id="blueValue">0</span>
+    
+    <!-- 颜色预览 -->
+    <!-- <div class="color-box" id="colorPreview"></div> -->
+</div>
+
+<h1>设备状态</h1>
+<p>当前IP地址: <span id="ip">%IP%</span></p>
+
+<div class="button-container">
+  <button onclick="fetch('/control?state=on')">打开LED</button>
+  <button onclick="fetch('/control?state=on')">关闭LED</button>
+</div>
+
+<div> 
+  <form action="">
+    <label style="text-align: center;" for="ssid">STA WIFI设置</label>
+    <label for="ssid">SSID</label>
+    <input type="text" id="stassid" name="stassid" placeholder="Wi-Fi名称" value="STA_WIFI" required>
+    <label for="passwd">PASSWD</label>
+    <input type="text" id="stapasswd" name="stapasswd" placeholder="至少8位密码" value="12345678" required>
+  </form>
+  <button style="text-align: center;" >STA设置</button>
+  <form action="">
+    <label style="text-align: center;" for="ssid">AP WIFI设置</label>
+    <label for="ssid">SSID</label>
+    <input type="text" id="stassid" name="stassid" placeholder="Wi-Fi名称" value="AP_WIFI" required>
+    <label for="passwd">PASSWD</label>
+    <input type="text" id="stapasswd" name="stapasswd" placeholder="至少8位密码" value="12345678" required>
+  </form>
+  <button >AP设置</button>
+</div>
+
+
+</body>
+<script>
+  // 统一处理所有滑条事件
+  document.querySelectorAll('.slider').forEach(slider => {
+      slider.oninput = function() {
+          // 更新显示值
+          document.getElementById(`${this.id}Value`).textContent = this.value;
+          
+          // 触发批量更新（带防抖）
+          debouncedUpdate();
+      };
+  });
+
+  // 防抖函数（300ms延迟）
+  let debounceTimer;
+  function debouncedUpdate() {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(sendControlData, 300);
+  }
+
+  // 收集所有滑条数据并发送
+  function sendControlData() {
+      // const params = {
+      //     r: document.getElementById('red').value,
+      //     g: document.getElementById('green').value,
+      //     b: document.getElementById('blue').value
+      // };
+      const params = {
+  r: parseInt(document.getElementById('red').value, 10),
+  g: parseInt(document.getElementById('green').value, 10),
+  b: parseInt(document.getElementById('blue').value, 10)
+};
+      // 更新颜色预览
+      document.getElementById('colorPreview').style.backgroundColor = 
+          `rgb(${params.r},${params.g},${params.b})`;
+
+      // 发送 POST 请求（JSON 格式）
+      fetch('/rgbcontrol', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(params)
+      }).then(response => {
+          if (!response.ok) throw new Error('控制失败');
+      }).catch(error => console.error(error));
+  }
+</script>
+</html>

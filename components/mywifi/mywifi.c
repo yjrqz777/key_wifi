@@ -12,11 +12,18 @@
 #include "freertos/semphr.h"
 #include "freertos/timers.h"
 
+
 #include "esp_mac.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "nvs_flash.h"
+
+#include "esp_http_server.h"
+
+#include "lwip/lwip_napt.h"
+#include "lwip/inet.h"
 
 #include "lwip/err.h"
 #include "lwip/sys.h"
@@ -37,7 +44,7 @@
 #define TIMEOFF 3
 
 
-static const char *TAG = "wifi softAP";
+static const char *TAG = "-wifi softAP-";
 
 
 static TimerHandle_t xExampleTimer;
@@ -49,16 +56,15 @@ static uint8_t u8Fg = 1;
 static uint8_t u8APFg = 0;
 
 static tRgbKeyDef AllQueue={0, 0, 0, 0};
+/***************************************************************************************************
+ * 功能描述: 
+ * 输入参数: 
+ * 输出参数: 
+ * 返 回 值: 
+ * 其它说明: 
+***************************************************************************************************/
 
-
-
-    // WIFI_EVENT_SCAN_DONE,                /**< Finished scanning AP */
-    // WIFI_EVENT_STA_START,                /**< Station start */
-    // WIFI_EVENT_STA_STOP,                 /**< Station stop */
-    // WIFI_EVENT_STA_CONNECTED,            /**< Station connected to AP */
-    // WIFI_EVENT_STA_DISCONNECTED,         /**< Station disconnected from AP */
-    // WIFI_EVENT_STA_AUTHMODE_CHANGE,      /**< the auth mode of AP connected by device's station changed */
-
+httpd_handle_t start_webserver(void);
 
 /***************************************************************************************************
  * 功能描述: 
@@ -162,11 +168,14 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
 
 void wifi_init_softap(void)
 {
-    static uint8_t FG = 0;
-    tRgbKeyDef rAllQueue;
+
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+
+
     esp_netif_create_default_wifi_ap();
+    esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
@@ -206,10 +215,10 @@ void wifi_init_softap(void)
     // }
     wifi_config_t SAT_wifi_config = {
         .sta = {
-            .ssid = "test2",
+            .ssid = "天翼2.4G",
 
             // .ssid_len = strlen("天翼2.4G"),
-            .password = "12345678",
+            .password = "66661111",
             .scan_method = WIFI_FAST_SCAN,
             /* Authmode threshold resets to WPA2 as default if password matches WPA2 standards (pasword len => 8).
              * If you want to connect the device to deprecated WEP/WPA networks, Please set the threshold value
@@ -227,40 +236,47 @@ void wifi_init_softap(void)
 
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &AP_wifi_config));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &SAT_wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &AP_wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
+
+    esp_netif_ip_info_t ip_info;
+    esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_AP_DEF"), &ip_info);
+
+    char ip_addr[16];
+    inet_ntoa_r(ip_info.ip.addr, ip_addr, 16);
+    ESP_LOGI(TAG, "Set up softAP with IP: %s", ip_addr);
 
     ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s password:%s channel:%d",
              EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS, EXAMPLE_ESP_WIFI_CHANNEL);
-    while (1) 
-    {
+    // while (1) 
+    // {
 
-        if (xQueueReceive(xQueueKey, &rAllQueue, portMAX_DELAY) == pdTRUE);
-        if(rAllQueue.k == 1 && FG == 0)
-        {
-            if (u8APFg)
-                esp_wifi_stop();
-            else 
-                esp_wifi_start();
-            FG = 1;
-            u8TimeMin = TIMEOFF;  // 定时时间清除
-            u8TimeSec = 0;  // 定时时间清除
-            u8Fg = 0;
-        }
-        else if(rAllQueue.k == 0 && FG == 1)
-        {
-            if (u8APFg)
-                esp_wifi_stop();
-            else 
-                esp_wifi_start();
-            FG = 0;
-            u8TimeMin = TIMEOFF;  // 定时时间清除
-            u8TimeSec = 0;  // 定时时间清除
-            u8Fg = 0;
-        }
-        vTaskDelay(100 / portTICK_PERIOD_MS);
-    }
+    //     if (xQueueReceive(xQueueKey, &rAllQueue, portMAX_DELAY) == pdTRUE);
+    //     if(rAllQueue.k == 1 && FG == 0)
+    //     {
+    //         if (u8APFg)
+    //             esp_wifi_stop();
+    //         else 
+    //             esp_wifi_start();
+    //         FG = 1;
+    //         u8TimeMin = TIMEOFF;  // 定时时间清除
+    //         u8TimeSec = 0;  // 定时时间清除
+    //         u8Fg = 0;
+    //     }
+    //     else if(rAllQueue.k == 0 && FG == 1)
+    //     {
+    //         if (u8APFg)
+    //             esp_wifi_stop();
+    //         else 
+    //             esp_wifi_start();
+    //         FG = 0;
+    //         u8TimeMin = TIMEOFF;  // 定时时间清除
+    //         u8TimeSec = 0;  // 定时时间清除
+    //         u8Fg = 0;
+    //     }
+    //     vTaskDelay(100 / portTICK_PERIOD_MS);
+    // }
 }
 
 
@@ -402,6 +418,8 @@ void SendQueueTimer()
 
 void wifi_task()
 {
+    static uint8_t FG = 0;
+    tRgbKeyDef rAllQueue;
     //Initialize NVS
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -428,9 +446,33 @@ void wifi_task()
     xTaskCreate(vTimerCallback, "vTimerCallback", 1024*4, NULL, 5, NULL);
     ESP_LOGI(TAG, "ESP_WIFI_MODE_AP");
     wifi_init_softap();
+    start_webserver();
 
-
-    while (1) {
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    while (1) 
+    {
+        if (xQueueReceive(xQueueKey, &rAllQueue, portMAX_DELAY) == pdTRUE);
+        if(rAllQueue.k == 1 && FG == 0)
+        {
+            if (u8APFg)
+                esp_wifi_stop();
+            else 
+                esp_wifi_start();
+            FG = 1;
+            u8TimeMin = TIMEOFF;  // 定时时间清除
+            u8TimeSec = 0;  // 定时时间清除
+            u8Fg = 0;
+        }
+        else if(rAllQueue.k == 0 && FG == 1)
+        {
+            if (u8APFg)
+                esp_wifi_stop();
+            else 
+                esp_wifi_start();
+            FG = 0;
+            u8TimeMin = TIMEOFF;  // 定时时间清除
+            u8TimeSec = 0;  // 定时时间清除
+            u8Fg = 0;
+        }
+        vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 }

@@ -122,7 +122,7 @@ void app_main(void)
 
     xTaskCreate(usb_task, "usb_task", 4096*5, NULL, 15, NULL);
     xTaskCreate(dap_task, "dap_task", 4096, NULL, 10, NULL);
-    xTaskCreate(wifi_task, "wifi_task", 1024*3, NULL, 5, NULL);
+    xTaskCreate(wifi_task, "wifi_task", 4096*3, NULL, 5, NULL);
     xTaskCreate(ws2812_task, "ws2812_task", 1024*3, NULL, 5, NULL);
     xTaskCreate(key_task, "key_task", 1024*3, NULL, 6, NULL);
 

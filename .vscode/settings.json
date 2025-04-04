@@ -33,7 +33,11 @@
         "algorithm": "c",
         "semphr.h": "c",
         "task.h": "c",
-        "myusb.h": "c"
+        "myusb.h": "c",
+        "lwip_napt.h": "c",
+        "esp_mac.h": "c",
+        "esp_event.h": "c",
+        "esp_netif.h": "c"
     },
     "idf.pythonInstallPath": "/usr/bin/python3",
     "files.exclude": {
