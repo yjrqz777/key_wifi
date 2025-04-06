@@ -13,8 +13,6 @@
         border: 2px solid #333;
         margin-top: 20px;
     }
-</style>
-<style>
   /* CSS样式 */
   form {
     max-width: 400px;
@@ -139,8 +137,7 @@
   b: parseInt(document.getElementById('blue').value, 10)
 };
       // 更新颜色预览
-      document.getElementById('colorPreview').style.backgroundColor = 
-          `rgb(${params.r},${params.g},${params.b})`;
+      //document.getElementById('colorPreview').style.backgroundColor = `rgb(${params.r},${params.g},${params.b})`;
 
       // 发送 POST 请求（JSON 格式）
       fetch('/rgbcontrol', {

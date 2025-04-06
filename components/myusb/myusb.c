@@ -1,7 +1,7 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-03-19 19:37:18
- * LastEditTime: 2025-03-23 23:01:09
+ * LastEditTime: 2025-04-06 16:58:09
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/myusb/myusb.c
@@ -26,7 +26,7 @@
 #include "freertos/task.h"
 #include "freertos/timers.h"
 #include "freertos/semphr.h"
-#include "esp_console.h"
+// #include "esp_console.h"
 #include "esp_check.h"
 #include "driver/gpio.h"
 #include "sdkconfig.h"
@@ -67,9 +67,9 @@ static const char *TAG = "my USB";
 
 
 
-__attribute__ ((aligned (4))) extern USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t USB_Request[DAP_PACKET_COUNT][DAP_PACKET_SIZE];  // Request  Buffer
-__attribute__ ((aligned (4))) extern USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t USB_Response[DAP_PACKET_COUNT][DAP_PACKET_SIZE]; // Response Buffer
-__attribute__ ((aligned (4))) extern uint16_t USB_RespSize[DAP_PACKET_COUNT];       
+extern __attribute__ ((aligned (4))) USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t USB_Request[DAP_PACKET_COUNT][DAP_PACKET_SIZE];  // Request  Buffer
+extern __attribute__ ((aligned (4))) USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t USB_Response[DAP_PACKET_COUNT][DAP_PACKET_SIZE]; // Response Buffer
+extern __attribute__ ((aligned (4))) uint16_t USB_RespSize[DAP_PACKET_COUNT];       
 /***************************************************************************************************/
 /* global */
 char current_dap_mode = 0;
@@ -267,7 +267,7 @@ static const char *string_descriptors[] = {
     "CherryUSB",                /* Manufacturer */
     "CherryUSB WINUSB DEMO",    /* Product */
     "2022123456",               /* Serial Number */
-    "MyWinUSB IF",              /* WinUSB接口名称 */
+    "YJRQZ777 DAP",              /* WinUSB接口名称 */
     "MyCDC Port",               /* CDC接口名称 */
 };
 
@@ -334,22 +334,20 @@ const uint8_t winusbv2_descriptor[] = {
     'B', 0x00,
 
     /* String 2 (Product) */
-    0x1E, /* bLength: 13 characters + 2 = 0x1A bytes */
+    0x1A, /* bLength: 13 characters + 2 = 0x1A bytes */
     USB_DESCRIPTOR_TYPE_STRING,
-    'M', 0x00,
-    'y', 0x00,
-    'C', 0x00,
-    'u', 0x00,
-    's', 0x00,
-    't', 0x00,
-    'o', 0x00, 
-    'm', 0x00, 
-    'D', 0x00, 
-    'e', 0x00, 
-    'v', 0x00, 
-    'i', 0x00, 
-    'c', 0x00, 
-    'e', 0x00,
+    'Y', 0x00,
+    'J', 0x00,
+    'R', 0x00,
+    'Q', 0x00,
+    'Z', 0x00,
+    '7', 0x00,
+    '7', 0x00, 
+    '7', 0x00, 
+    ' ', 0x00, 
+    'U', 0x00, 
+    'S', 0x00, 
+    'B', 0x00,
 
     /* String 3 (Serial) */
     0x2A, /* bLength */
@@ -376,19 +374,20 @@ const uint8_t winusbv2_descriptor[] = {
     '6', 0x00, /* wcChar19 */
 
     /* String 4 (WinUSB接口名称) */
-    0x18, /* bLength: 11字符 * 2 + 2 = 0x1A */
+    0x1A, /* bLength: 11字符 * 2 + 2 = 0x1A */
     USB_DESCRIPTOR_TYPE_STRING,
-    'M', 0x00,  /* wcChar0 */
-    'y', 0x00,  /* wcChar1 */
-    'W', 0x00,  /* wcChar2 */
-    'i', 0x00,  /* wcChar3 */     
-    'n', 0x00,  /* wcChar4 */
-    'U', 0x00,  /* wcChar5 */
-    'S', 0x00,  /* wcChar6 */
-    'B', 0x00,  /* wcChar7 */
-    ' ', 0x00,  /* wcChar8 */
-    'I', 0x00,  /* wcChar9 */
-    'F', 0x00,  /* wcChar10 */
+    'Y', 0x00,  /* wcChar0 */
+    'J', 0x00,  /* wcChar1 */
+    'R', 0x00,  /* wcChar2 */
+    'Q', 0x00,  /* wcChar3 */     
+    'Z', 0x00,  /* wcChar4 */
+    '7', 0x00,  /* wcChar5 */
+    '7', 0x00,  /* wcChar6 */
+    '7', 0x00,  /* wcChar7 */
+    '-', 0x00,  /* wcChar8 */
+    'D', 0x00,  /* wcChar9 */
+    'A', 0x00,  /* wcChar10 */
+    'P', 0x00,  /* wcChar11 */
 
     /* String 5 (CDC接口名称) */
     0x16, /* bLength: 10字符 * 2 + 2 = 0x18 */
@@ -399,10 +398,10 @@ const uint8_t winusbv2_descriptor[] = {
     'D', 0x00, /* wcChar3 */
     'C', 0x00, /* wcChar4 */
     ' ', 0x00, /* wcChar5 */
-    'P', 0x00, /* wcChar6 */
-    'o', 0x00, /* wcChar7 */
-    'r', 0x00, /* wcChar8 */
-    't', 0x00, /* wcChar9 */
+    'U', 0x00, /* wcChar6 */
+    'A', 0x00, /* wcChar7 */
+    'R', 0x00, /* wcChar8 */
+    'T', 0x00, /* wcChar9 */
 
 #ifdef CONFIG_USB_HS
     /* Device Qualifier */
@@ -478,7 +477,7 @@ static void usbd_event_handler(uint8_t busid, uint8_t event)
 ***************************************************************************************************/
 void usbd_cdc_acm_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
-    //  USB_LOG_RAW("actual out len:%d\r\n", nbytes);
+    USB_LOG_RAW("actual out len:%d\r\n", nbytes);
     chry_ringbuffer_write(&g_uarttx, cdc_read_buffer, nbytes);
     if (chry_ringbuffer_get_free(&g_uarttx) >= nbytes)
     {

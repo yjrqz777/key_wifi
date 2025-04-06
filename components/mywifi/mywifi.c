@@ -335,6 +335,7 @@ void vTimerCallback(TimerHandle_t xTimer) {
     static uint8_t add = 0;
     while (true)
     {
+
         if(u8Fg == 2)
         {
             u8TimeMin = TIMEOFF;  // 定时时间清除
@@ -346,7 +347,7 @@ void vTimerCallback(TimerHandle_t xTimer) {
             if (add)r++;else r--;
 
             led_strip_hsv2rgb(r, 100, 3, &AllQueue.r, &AllQueue.g, &AllQueue.b);
-
+            xQueueSend(xQueueLed, &AllQueue, 100);
             if (r==255)add = 0;
             if (r==0)add = 1;
 
@@ -403,15 +404,15 @@ void vTimerCallback(TimerHandle_t xTimer) {
 
 void SendQueueTimer()
 {
-    if (xQueueSend(xQueueLed, &AllQueue, 2) == pdTRUE)
-    {
-        // ESP_LOGI("SendQueue","-OK");
-        // ESP_LOGI(TAG,"发送RGB: R=%d, G=%d, B=%d\n", AllQueue.r, AllQueue.g, AllQueue.b);
-    }
-    else
-    {
-        // ESP_LOGI("SendQueue","-timeout");
-    }
+    // if (xQueueSend(xQueueLed, &AllQueue, 2) == pdTRUE)
+    // {
+    //     // ESP_LOGI("SendQueue","-OK");
+    //     // ESP_LOGI(TAG,"发送RGB: R=%d, G=%d, B=%d\n", AllQueue.r, AllQueue.g, AllQueue.b);
+    // }
+    // else
+    // {
+    //     // ESP_LOGI("SendQueue","-timeout");
+    // }
 }
 
 
@@ -444,35 +445,37 @@ void wifi_task()
         xTimerStart(xExampleTimer, 0);
     }
     xTaskCreate(vTimerCallback, "vTimerCallback", 1024*4, NULL, 5, NULL);
-    ESP_LOGI(TAG, "ESP_WIFI_MODE_AP");
+    // ESP_LOGI(TAG, "ESP_WIFI_MODE_AP");
     wifi_init_softap();
     start_webserver();
 
     while (1) 
     {
-        if (xQueueReceive(xQueueKey, &rAllQueue, portMAX_DELAY) == pdTRUE);
-        if(rAllQueue.k == 1 && FG == 0)
-        {
-            if (u8APFg)
+        // if (xQueueReceive(xQueueKey, &rAllQueue, portMAX_DELAY) == pdTRUE);
+        // if(rAllQueue.k == 1 && FG == 0)
+        // {
+        //     if (u8APFg)
                 esp_wifi_stop();
-            else 
-                esp_wifi_start();
-            FG = 1;
-            u8TimeMin = TIMEOFF;  // 定时时间清除
-            u8TimeSec = 0;  // 定时时间清除
-            u8Fg = 0;
-        }
-        else if(rAllQueue.k == 0 && FG == 1)
-        {
-            if (u8APFg)
-                esp_wifi_stop();
-            else 
-                esp_wifi_start();
-            FG = 0;
-            u8TimeMin = TIMEOFF;  // 定时时间清除
-            u8TimeSec = 0;  // 定时时间清除
-            u8Fg = 0;
-        }
-        vTaskDelay(100 / portTICK_PERIOD_MS);
+        //     else 
+        //         esp_wifi_start();
+        //     FG = 1;
+        //     u8TimeMin = TIMEOFF;  // 定时时间清除
+        //     u8TimeSec = 0;  // 定时时间清除
+        //     u8Fg = 0;
+        // }
+        // else if(rAllQueue.k == 0 && FG == 1)
+        // {
+        //     if (u8APFg)
+        //         esp_wifi_stop();
+        //     else 
+        //         esp_wifi_start();
+        //     FG = 0;
+        //     u8TimeMin = TIMEOFF;  // 定时时间清除
+        //     u8TimeSec = 0;  // 定时时间清除
+        //     u8Fg = 0;
+        // }
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+
+
     }
 }

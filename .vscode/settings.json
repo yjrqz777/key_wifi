@@ -37,7 +37,10 @@
         "lwip_napt.h": "c",
         "esp_mac.h": "c",
         "esp_event.h": "c",
-        "esp_netif.h": "c"
+        "esp_netif.h": "c",
+        "random": "c",
+        "inet.h": "c",
+        "freertos.h": "c"
     },
     "idf.pythonInstallPath": "/usr/bin/python3",
     "files.exclude": {

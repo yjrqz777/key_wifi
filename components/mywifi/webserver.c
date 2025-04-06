@@ -21,6 +21,7 @@
 
 #include "cJSON.h"
 
+#include "var.h"
 static const char *TAG = "-webserver-";
 /***************************************************************************************************
 ***************************************************************************************************/
@@ -154,7 +155,7 @@ esp_err_t led_control_handler(httpd_req_t *req) {
 
 
 
-
+static tRgbKeyDef AllQueue={0, 0, 0, 0};
 
 
 // 控制请求处理
@@ -185,10 +186,14 @@ esp_err_t rgb_control_handler(httpd_req_t *req) {
     int b = cJSON_GetObjectItem(rgb_json, "b")->valueint;
 
     // 限幅处理
-    // r = (r < 0) ? 0 : (r > 255) ? 255 : r;
-    // g = (g < 0) ? 0 : (g > 255) ? 255 : g;
-    // b = (b < 0) ? 0 : (b > 255) ? 255 : b;
+    r = (r < 0) ? 0 : (r > 255) ? 255 : r;
+    g = (g < 0) ? 0 : (g > 255) ? 255 : g;
+    b = (b < 0) ? 0 : (b > 255) ? 255 : b;
 
+    AllQueue.r = r;
+    AllQueue.g = g;
+    AllQueue.b = b;
+    xQueueSend(xQueueLed, &AllQueue, 2);
     // 更新PWM输出
     // ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, r);
     // ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, g);

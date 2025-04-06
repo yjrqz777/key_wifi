@@ -16,6 +16,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "nvs_flash.h"
 
 #include "myusb.h"
 #include "mywifi.h"
@@ -120,6 +121,7 @@ void app_main(void)
     xQueueKey = xQueueCreate(5,sizeof(struct tRgbKeyDef));
 
 
+    xTaskCreate(vat_task, "vat_task", 1024*3, NULL, 9, NULL);
     xTaskCreate(usb_task, "usb_task", 4096*5, NULL, 15, NULL);
     xTaskCreate(dap_task, "dap_task", 4096, NULL, 10, NULL);
     xTaskCreate(wifi_task, "wifi_task", 4096*3, NULL, 5, NULL);
@@ -128,4 +130,111 @@ void app_main(void)
 
     xTaskCreate(adc_task, "adc_task", 1024*4, NULL, 1, NULL);
 
+
+
+    vTaskDelay(3000 / portTICK_PERIOD_MS);
+
+    printf("NVS Entries:\n");
+    printf("----------------------------------------\n");
+    printf("Namespace | Key      | Type       | Value\n");
+    printf("----------------------------------------\n");
+
+    // 遍历所有 NVS 条目
+    nvs_iterator_t it = NULL;
+    esp_err_t res = nvs_entry_find("nvs", NULL, NVS_TYPE_ANY, &it);
+    if (res != ESP_OK) {
+        printf("No entries found in NVS.\n");
+        return;
+    }
+
+
+    while (res == ESP_OK) {
+        nvs_entry_info_t entry_info;
+        nvs_entry_info(it, &entry_info);
+        
+        // 打开命名空间
+        nvs_handle_t handle;
+        ESP_ERROR_CHECK(nvs_open(entry_info.namespace_name, NVS_READONLY, &handle));
+        
+        // 根据数据类型读取值
+        switch (entry_info.type) {
+            case NVS_TYPE_I8: {
+                int8_t val;
+                nvs_get_i8(handle, entry_info.key, &val);
+                printf("%-9s | %-8s | int8_t    | %d\n", entry_info.namespace_name, entry_info.key, val);
+                break;
+            }
+            case NVS_TYPE_U8: {
+                uint8_t val;
+                nvs_get_u8(handle, entry_info.key, &val);
+                printf("%-9s | %-8s | uint8_t   | %u\n", entry_info.namespace_name, entry_info.key, val);
+                break;
+            }
+            case NVS_TYPE_I16: {
+                int16_t val;
+                nvs_get_i16(handle, entry_info.key, &val);
+                printf("%-9s | %-8s | int16_t   | %d\n", entry_info.namespace_name, entry_info.key, val);
+                break;
+            }
+            case NVS_TYPE_U16: {
+                uint16_t val;
+                nvs_get_u16(handle, entry_info.key, &val);
+                printf("%-9s | %-8s | uint16_t  | %u\n", entry_info.namespace_name, entry_info.key, val);
+                break;
+            }
+            case NVS_TYPE_I32: {
+                int32_t val;
+                nvs_get_i32(handle, entry_info.key, &val);
+                printf("%-9s | %-8s | int32_t   | %ld\n", entry_info.namespace_name, entry_info.key, val);
+                break;
+            }
+            case NVS_TYPE_U32: {
+                uint32_t val;
+                nvs_get_u32(handle, entry_info.key, &val);
+                printf("%-9s | %-8s | uint32_t  | %lu\n", entry_info.namespace_name, entry_info.key, val);
+                break;
+            }
+            case NVS_TYPE_STR: {
+                char buf[128];
+                size_t len = sizeof(buf);
+                nvs_get_str(handle, entry_info.key, buf, &len);
+                printf("%-9s | %-8s | string    | %s\n", entry_info.namespace_name, entry_info.key, buf);
+                break;
+            }
+            case NVS_TYPE_BLOB: {
+                uint8_t buf[128];
+                size_t len = sizeof(buf);
+                nvs_get_blob(handle, entry_info.key, buf, &len);
+                printf("%-9s | %-8s | blob      | [%u bytes]\n", entry_info.namespace_name, entry_info.key, len);
+                break;
+            }
+            default:
+                printf("%-9s | %-8s | unknown   | \n", entry_info.namespace_name, entry_info.key);
+        }
+
+
+
+        nvs_close(handle);
+        res = nvs_entry_next(&it);
+    }
+
+    nvs_release_iterator(it);
+
+//     nvs_handle_t handle;
+//     esp_err_t err = nvs_open("wifi_config", NVS_READWRITE, &handle);
+//     if (err != ESP_OK) return;
+//     // 写入新的 SSID 到 NVS
+//     char new_ssid[32] = "new_ssid";
+//     nvs_set_str(handle, "sta.ssid", new_ssid);
+//     nvs_commit(handle); // 必须提交！
+//     nvs_close(handle);
+
+
+// // nvs_handle_t handle;
+// nvs_open("wifi_config", NVS_READONLY, &handle);
+// char ssid[32];
+// size_t ssid_len = sizeof(ssid);
+// nvs_get_str(handle, "sta.ssid", ssid, &ssid_len);
+// printf("Current SSID: %s\n", ssid); // 确认是否更新
+// nvs_close(handle);
 }

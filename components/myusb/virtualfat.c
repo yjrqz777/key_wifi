@@ -1,7 +1,7 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-03-23 22:29:49
- * LastEditTime: 2025-03-23 22:44:40
+ * LastEditTime: 2025-04-06 18:19:11
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/myusb/virtualfat.c
@@ -10,14 +10,18 @@
 
 #include "myusb.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
+
 #include "usbd_core.h"
 #include "usbd_msc.h"
 
 
-#include "esp_vfs.h"
+// #include "esp_vfs.h"
 #include "esp_vfs_fat.h"
 #include "esp_system.h"
 
+#include "cJSON.h"
 
 #ifdef CONFIG_CHERRYDAP_USE_MSC
 
@@ -53,7 +57,28 @@ DATA_START_SECTOR =
 
 
 /* 新增预置文本和文件元数据 */
-#define FILE_CONTENT      "This is virtual Fat !!!\r\n"
+#define FILE_CONTENT      "This is virtual Fat !!! \n\
+The config file name is config.json\n\
+\n\
+{\n\
+\"sta_wifi\": [\n\
+    {\n\
+    \"note\": \"Don't be the same with ap_wifi\",\n\
+    \"en\": 1,\n\
+    \"ssid\": \"sta_wifi\",\n\
+    \"password\": \"12345678\"\n\
+    }\n\
+],\n\
+\"ap_wifi\": [\n\
+    {\n\
+    \"note\": \"Don't be the same with sta_wifi\",\n\
+    \"en\": 1,\n\
+    \"ssid\": \"test\",\n\
+    \"password\": \"12345678\"\n\
+    }\n\
+]\n\
+}\n\
+\r\n"
 #define FILE_SIZE        (sizeof(FILE_CONTENT) - 1)  // 15字节
 
 // 定义文件占用的簇号（FAT簇号从2开始）
@@ -257,6 +282,37 @@ void parse_fat16_directory(uint8_t *buffer, uint32_t length) {
         }
     }
 }
+
+uint8_t u8FindJson(uint8_t *buffer, uint32_t length)
+{
+    for (int i = 0; i < length; i += 32) {
+        uint8_t *entry = buffer + i;
+        // ESP_LOGI(TAG, "entry[0]: %02X", entry[0]);
+        if (entry[0] == 0x00 || entry[0] == 0xE5) continue; // 跳过空或已删除的条目
+
+        char filename[13];
+        char LastName[5];
+        memcpy(filename, entry, 8);          // 主名
+        filename[8] = '.';
+        memcpy(filename + 9, entry + 8, 3); // 扩展名
+        memcpy(LastName, entry + 8, 3); // 扩展名
+        LastName[3] = '\0';
+        filename[12] = '\0';
+
+        if (memcmp(LastName, "JSO", 3) == 0) {
+            // 找到文件名为"config.json"
+            printf("1文件名: %s\n", filename);
+            return 1; // 返回1表示找到
+        } 
+
+
+        uint8_t attr = entry[11];
+        if (!(attr & 0x08) && !(attr & 0x10)) { // 普通文件（非卷标或目录）
+            printf("2文件名: %s\n", filename);
+        }
+    }
+    return 0; // 返回0表示未找到
+}
 /***************************************************************************************************
  * 功能描述: 
  * 输入参数: 
@@ -390,18 +446,57 @@ int usbd_msc_sector_read(uint8_t busid, uint8_t lun, uint32_t sector, uint8_t *b
  * param {uint8_t} *buffer
  * param {uint32_t} length
 ***************************************************************************************************/
+char content[512] = {0};
+
+
 int usbd_msc_sector_write(uint8_t busid, uint8_t lun, uint32_t sector, uint8_t *buffer, uint32_t length)
 {
     // USB_LOG_RAW("write: lun=%d, sector=%lu, buffer = %s, length=%lu\r\n", lun, sector, buffer, length);
-    
+    uint8_t u8IFconfig = 0;
     // 检测根目录区写入
     uint32_t root_start = RESERVED_SECTORS + (FAT_COPIES * SECTORS_PER_FAT);
     uint32_t root_sectors = (ROOT_ENTRIES * 32 + SECTOR_SIZE - 1) / SECTOR_SIZE;
 
     if (sector >= root_start && sector < root_start + root_sectors) {
-        parse_fat16_directory(buffer, length);
+        // parse_fat16_directory(buffer, length);
+        u8IFconfig = u8FindJson(buffer, length);
+    }
+    if (sector >= DATA_START_SECTOR && length>0) 
+    {
+        USB_LOG_RAW("write: lun=%d, sector=%lu, buffer = %s, length=%lu\r\n", lun, sector, buffer, length);
+
+    
+    memcpy(content, buffer, 512);
+    content[length-1] = '\0';
+    
+    // 解析JSON
+    cJSON *config_json = cJSON_Parse(content);
+    
+    if (!config_json) {
+        // ESP_LOGE(TAG, "JSON解析失败");
+        return 0;
+    }
+    ESP_LOGI(TAG, "原始JSON: %s", cJSON_PrintUnformatted(config_json));
+    // ESP_LOGI(TAG, "JSON解析成功");
+
+    // 提取 sta_wifi 的 en 值
+    cJSON *sta_wifi = cJSON_GetObjectItem(config_json, "sta_wifi");
+    if (sta_wifi && cJSON_IsArray(sta_wifi)) {
+        cJSON *sta_item = cJSON_GetArrayItem(sta_wifi, 0);
+        if (sta_item) {
+            cJSON *en_sta = cJSON_GetObjectItem(sta_item, "en");
+            if (en_sta && cJSON_IsNumber(en_sta)) {
+                printf("sta_wifi en 值: %d\n", en_sta->valueint);
+            }
+        }
     }
 
+    } 
+    else
+    {
+        /* code */
+    }
+    
     return 0;
 }
 

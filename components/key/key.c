@@ -47,11 +47,12 @@ void key_task()
             fg = 0;
             AllQueue.k = !AllQueue.k;
         }
-        if (xQueueSend(xQueueKey, &AllQueue, portMAX_DELAY) == pdTRUE) {
-            // printf("发送RGB: R=%d, G=%d, B=%d\n", color.r, color.g, color.b);
+        if (xQueueSend(xQueueKey, &AllQueue, portMAX_DELAY) == pdTRUE) 
+        {
+            // printf("发送RGB: R=%d, G=%d, B=%d\n", AllQueue.r, AllQueue.g, AllQueue.b);
         }
 
-        // ESP_LOGI(TAG, "--%d--",s_key_state);
+        // ESP_LOGI(TAG, "--%d--",key11_status);
 
         vTaskDelay(10 / portTICK_PERIOD_MS);
         
