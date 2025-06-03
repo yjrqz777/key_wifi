@@ -19,16 +19,19 @@
 #include "nvs_flash.h"
 
 #include "myusb.h"
-#include "mywifi.h"
-#include "ws2812.h"
-#include "key.h"
-#include "var.h"
+// #include "mywifi.h"
+// #include "ws2812.h"
+// #include "key.h"
+// #include "var.h"
 
 #include "soc/soc_caps.h"
 #include "esp_log.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
+
+
+#include "all_control.h"
 
 const char *TAG = "main";
 
@@ -69,28 +72,6 @@ void adc_task(void *pvParameters)
         // }
         vTaskDelay(10000 / portTICK_PERIOD_MS);
 
-
-    // if (p> 300 && p < 500)
-    // {
-    //     button_flag = 1;
-    // }
-    // else if (p > 850 && p < 1050)
-    // {
-    //     button_flag = 2;
-    // }
-    // else if (p > 2250 && p < 2450)
-    // {
-    //     button_flag = 3;
-    // }
-    // else if (p > 2800 && p < 3000)
-    // {
-    //     button_flag = 5;
-    // }
-    // else
-    // {
-    //     button_flag = 0;
-    // }
-
 // {BUTTON_MENU, 2800, 3000}, {BUTTON_PLAY, 2250, 2450}, {BUTTON_UP, 300, 500}, {BUTTON_DOWN, 850, 1050}
 
         // std::cout << "adc_oneshot_read = " << voltage << std::endl;
@@ -101,11 +82,10 @@ void adc_task(void *pvParameters)
         // vTaskDelay(10 / portTICK_PERIOD_MS);
     }
 }
+// tws2812RgbDef tws2812Rgb;
 
 
-
-
-
+extern void vat_task(void);
 /***************************************************************************************************
  * 功能描述: 
  * 输入参数: 
@@ -116,19 +96,26 @@ void adc_task(void *pvParameters)
 void app_main(void)
 {
     ESP_LOGI(TAG, "---Initializing Key WIFI---");
+    all_control_main(0, NULL);
 
-    xQueueLed = xQueueCreate(5,sizeof(struct tRgbKeyDef));
-    xQueueKey = xQueueCreate(5,sizeof(struct tRgbKeyDef));
+    while (1)
+    {
+        vTaskDelay(3000 / portTICK_PERIOD_MS);
+    }
+    
+
+    // xQueueLed = xQueueCreate(5,sizeof(struct tRgbKeyDef));
+    // xQueueKey = xQueueCreate(5,sizeof(struct tRgbKeyDef));
 
 
-    xTaskCreate(vat_task, "vat_task", 1024*3, NULL, 9, NULL);
-    xTaskCreate(usb_task, "usb_task", 4096*5, NULL, 15, NULL);
-    xTaskCreate(dap_task, "dap_task", 4096, NULL, 10, NULL);
-    xTaskCreate(wifi_task, "wifi_task", 4096*3, NULL, 5, NULL);
-    xTaskCreate(ws2812_task, "ws2812_task", 1024*3, NULL, 5, NULL);
-    xTaskCreate(key_task, "key_task", 1024*3, NULL, 6, NULL);
+    // xTaskCreate(vat_task, "vat_task", 1024*3, NULL, 9, NULL);
+    // xTaskCreate(usb_task, "usb_task", 4096*5, NULL, 15, NULL);
+    // xTaskCreate(dap_task, "dap_task", 4096, NULL, 10, NULL);
+    // xTaskCreate(wifi_task, "wifi_task", 4096*3, NULL, 5, NULL);
+    // xTaskCreate(ws2812_task, "ws2812_task", 1024*3, NULL, 5, NULL);
+    // xTaskCreate(key_task, "key_task", 1024*3, NULL, 6, NULL);
 
-    xTaskCreate(adc_task, "adc_task", 1024*4, NULL, 1, NULL);
+    // xTaskCreate(adc_task, "adc_task", 1024*4, NULL, 1, NULL);
 
 
 
@@ -218,7 +205,7 @@ void app_main(void)
         res = nvs_entry_next(&it);
     }
 
-    nvs_release_iterator(it);
+    // nvs_release_iterator(it);
 
 //     nvs_handle_t handle;
 //     esp_err_t err = nvs_open("wifi_config", NVS_READWRITE, &handle);

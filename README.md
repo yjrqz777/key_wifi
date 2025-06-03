@@ -1,9 +1,12 @@
 | Supported Targets | ESP32-S2 | ESP32-S3 |
 | ----------------- | -------- | -------- |
 
-# CherryUSB CDC ACM Device Example
+# CherryUSB CDC ACM Device DAP wifi ap sta 
 
 ```
 CherryUSB config : components/cherry-embedded__cherryusb/osal/idf/usb_config.h
 DAP config : components/DAP/Include/DAP_config.h
 ```
+
+
+重构ing

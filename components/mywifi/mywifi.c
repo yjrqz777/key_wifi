@@ -11,7 +11,8 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "freertos/timers.h"
-
+#include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
 
 #include "esp_mac.h"
 #include "esp_wifi.h"
@@ -415,8 +416,14 @@ void SendQueueTimer()
     // }
 }
 
-
-
+extern EventGroupHandle_t get_event_group(void);
+/***************************************************************************************************
+ * 功能描述: 
+ * 输入参数: 
+ * 输出参数: 
+ * 返 回 值: 
+ * 其它说明: 
+***************************************************************************************************/
 void wifi_task()
 {
     static uint8_t FG = 0;
@@ -451,6 +458,7 @@ void wifi_task()
 
     while (1) 
     {
+        EventGroupHandle_t hand_t = get_event_group();
         // if (xQueueReceive(xQueueKey, &rAllQueue, portMAX_DELAY) == pdTRUE);
         // if(rAllQueue.k == 1 && FG == 0)
         // {
