@@ -1,7 +1,7 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-06-03 21:15:39
- * LastEditTime: 2025-06-03 22:19:28
+ * LastEditTime: 2025-06-04 21:09:26
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/all_control/src/key.c
@@ -22,13 +22,22 @@
 #include "all_control.h"
 
 
-static const char *TAG = "GPIO BUTTON TEST";
+static const char *TAG = "Key";
 
 #define BUTTON_IO_NUM  0
 #define BUTTON_ACTIVE_LEVEL   0
 
+
+extern void wifi_button_handler(void);
+
+
+
+
+
+
 static void button_event_cb(void *arg, void *data)
 {
+    static uint8_t u8SendFg = 0;
     static tws2812Def tws2812Data = {0};
     button_event_t event = iot_button_get_event(arg);
     // ESP_LOGI(TAG, "%s", iot_button_get_event_str(event));
@@ -39,19 +48,22 @@ static void button_event_cb(void *arg, void *data)
 
     if (BUTTON_PRESS_UP == event) 
     {
-        tws2812Data.h += 1;
-        tws2812Data.s = 100;
+        /*触发按键闪一下*/
+        tws2812Data.h = 0;
+        tws2812Data.s = 0;
         tws2812Data.v = 0;
-        tws2812Data.u16time = 0;
+        tws2812Data.u32time = 0;
+        u8SendFg = 1;
     }
     if (BUTTON_LONG_PRESS_HOLD == event || BUTTON_LONG_PRESS_UP == event) 
     {
+        /*长按 Rainbow*/
         ESP_LOGI(TAG, "\tTICKS[%"PRIu32"]", iot_button_get_ticks_time(arg));
-
         tws2812Data.h += 1;
         tws2812Data.s = 100;
         tws2812Data.v = 5;
-        tws2812Data.u16time = 0;
+        tws2812Data.u32time = 0;
+        u8SendFg = 1;
     }
     if (BUTTON_MULTIPLE_CLICK == event) {
         ESP_LOGI(TAG, "\tMULTIPLE[%d]", (int)data);
@@ -59,19 +71,23 @@ static void button_event_cb(void *arg, void *data)
     
     if (BUTTON_PRESS_END == event)
     {
+        /**/
         ESP_LOGI(TAG, "BUTTON_PRESS_END");
-
-
-        tws2812Data.h = 299;
-        tws2812Data.s = 100;
-        tws2812Data.v = 5;
-        tws2812Data.u16time = 0;
-
+        // tws2812Data.h = 299;
+        // tws2812Data.s = 100;
+        // tws2812Data.v = 0;
+        // tws2812Data.u32time = 0;
+        // u8SendFg = 1;
+        wifi_button_handler();
     }
-    
-    if (xQueueSend(xQueueLed, &tws2812Data, portMAX_DELAY) == pdTRUE) 
+
+    if (u8SendFg == 1)
     {
-        // printf("发送RGB: R=%d, G=%d, B=%d\n", AllQueue.r, AllQueue.g, AllQueue.b);
+        u8SendFg = 0;
+        if (xQueueSend(xQueueLed, &tws2812Data, portMAX_DELAY) == pdTRUE) 
+        {
+            // printf("发送RGB: R=%d, G=%d, B=%d\n", AllQueue.r, AllQueue.g, AllQueue.b);
+        }
     }
 
 }

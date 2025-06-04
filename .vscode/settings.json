@@ -47,7 +47,8 @@
         "soc_caps.h": "c",
         "all_control.h": "c",
         "key.h": "c",
-        "timers.h": "c"
+        "timers.h": "c",
+        "cjson.h": "c"
     },
     "idf.pythonInstallPath": "/usr/bin/python3",
     "files.exclude": {

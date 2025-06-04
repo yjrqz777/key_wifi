@@ -9,4 +9,12 @@ DAP config : components/DAP/Include/DAP_config.h
 ```
 
 
-重构ing
+release1.0.0
+```
+基于ESP32S3 核心板
+ws2812
+boot按键控制wifi ap
+实现CDC ACM虚拟串口 
+DAPLINK功能
+WebServer
+```

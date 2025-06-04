@@ -1,7 +1,7 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-03-19 19:37:18
- * LastEditTime: 2025-04-06 16:58:09
+ * LastEditTime: 2025-06-04 22:52:14
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/myusb/myusb.c
@@ -470,7 +470,7 @@ static void usbd_event_handler(uint8_t busid, uint8_t event)
  * 输入参数: 
  * 输出参数: 
  * 返 回 值: 
- * 其它说明: 
+ * 其它说明: APSSID1APSSIDAPPASSWD12345678APPASSWD 37
  * param {uint8_t} busid
  * param {uint8_t} ep
  * param {uint32_t} nbytes
@@ -478,6 +478,7 @@ static void usbd_event_handler(uint8_t busid, uint8_t event)
 void usbd_cdc_acm_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
     USB_LOG_RAW("actual out len:%d\r\n", nbytes);
+
     chry_ringbuffer_write(&g_uarttx, cdc_read_buffer, nbytes);
     if (chry_ringbuffer_get_free(&g_uarttx) >= nbytes)
     {
@@ -501,7 +502,7 @@ void usbd_cdc_acm_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
 ***************************************************************************************************/
 void usbd_cdc_acm_in(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
-    //  USB_LOG_RAW("actual in len:%d\r\n", nbytes);
+    USB_LOG_RAW("actual in len:%d\r\n", nbytes);
 
     if ((nbytes % usbd_get_ep_mps(busid, ep)) == 0 && nbytes)
     {
@@ -761,6 +762,7 @@ void usb_task(void)
     while (1)
     {
         len = uart_read_bytes(ECHO_UART_PORT_NUM, Rxdata, (BUF_SIZE - 1), 20 / portTICK_PERIOD_MS);
+        // USB_LOG_INFO(TAG, "uart_read_bytes len:%d", len);
         usbd_ep_start_write(BUSID, CDC_IN_EP, (uint8_t *)Rxdata, len);
 
         if (uarttx_buff_full)
@@ -778,6 +780,6 @@ void usb_task(void)
                 uart_write_bytes(ECHO_UART_PORT_NUM, (const char *)Txdata, len);
             }
         }
-        vTaskDelay(1);
+        vTaskDelay(5);
     }
 }

@@ -17,12 +17,11 @@
 #include "lwip/err.h"
 #include "lwip/sys.h"
 
-#include "mywifi.h"
-
 #include "cJSON.h"
 
+#include "all_control.h"
 // #include "var.h"
-static const char *TAG = "-webserver-";
+static const char *TAG = "WEB";
 /***************************************************************************************************
 ***************************************************************************************************/
 
@@ -155,7 +154,7 @@ esp_err_t led_control_handler(httpd_req_t *req) {
 
 
 
-static tRgbKeyDef AllQueue={0, 0, 0, 0};
+static tws2812Def tws2812Data={0};
 
 
 // 控制请求处理
@@ -190,10 +189,10 @@ esp_err_t rgb_control_handler(httpd_req_t *req) {
     g = (g < 0) ? 0 : (g > 255) ? 255 : g;
     b = (b < 0) ? 0 : (b > 255) ? 255 : b;
 
-    AllQueue.r = r;
-    AllQueue.g = g;
-    AllQueue.b = b;
-    xQueueSend(xQueueLed, &AllQueue, 2);
+    tws2812Data.r = r;
+    tws2812Data.g = g;
+    tws2812Data.b = b;
+    xQueueSend(xQueueLed, &tws2812Data, 2);
     // 更新PWM输出
     // ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, r);
     // ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, g);

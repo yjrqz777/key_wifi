@@ -1,7 +1,7 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-06-03 20:57:53
- * LastEditTime: 2025-06-03 21:56:57
+ * LastEditTime: 2025-06-04 22:17:01
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/all_control/all_control.c
@@ -40,10 +40,10 @@ void all_control_main(int argc,int *argv)
     xTaskCreate(key_task, "key_task", 1024*3, NULL, 6, NULL);
     xTaskCreate(wifi_task, "wifi_task", 4096*3, NULL, 5, NULL);
 
-    while (true)
-    {
-        vTaskDelay(10/ portTICK_PERIOD_MS);
-    }
+    // while (true)
+    // {
+    //     vTaskDelay(10/ portTICK_PERIOD_MS);
+    // }
     
 
 }

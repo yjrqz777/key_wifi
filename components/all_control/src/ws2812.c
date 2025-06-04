@@ -204,7 +204,7 @@ void ws2812_task(void *pvParameters)
     // uint8_t red = 0;
     // uint8_t green = 0;
     // uint8_t blue = 0;
-    uint32_t u16timecount = 0;
+    uint32_t u32timecount = 0;
     tws2812Def tws2812Data = {100, 100, 3, 0, 0, 0, 0};
     ESP_LOGI(TAG, "Create RMT TX channel");
     rmt_channel_handle_t led_chan = NULL;
@@ -234,22 +234,26 @@ void ws2812_task(void *pvParameters)
     while (1) {
             if (xQueueReceive(xQueueLed, &tws2812Data, pdMS_TO_TICKS(5)) == pdTRUE)
             {
-                u16timecount = 0;
+                u32timecount = tws2812Data.u32time;
                 // red = tws2812Data.r;
                 // green = tws2812Data.g;
                 // blue = tws2812Data.b;
-                // ESP_LOGI(TAG,"JIERGB: R=%d, G=%d, B=%d\n", tws2812Data.r, tws2812Data.g, tws2812Data.b);
+                ESP_LOGI(TAG,"RecRGB: H=%ld, S=%ld, V=%ld, R=%d, G=%d, B=%d, time=%ld\n", tws2812Data.h, tws2812Data.s, tws2812Data.v,tws2812Data.r, tws2812Data.g, tws2812Data.b, tws2812Data.u32time);
             }
             else
             {
-                if (++u16timecount > 10*60*1000 / EXAMPLE_CHASE_SPEED_MS)
+
+                if (++u32timecount > 10*60*1000 / EXAMPLE_CHASE_SPEED_MS)
                 {
-                    u16timecount = 10*60*1000 / EXAMPLE_CHASE_SPEED_MS;
+                    u32timecount = 10*60*1000 / EXAMPLE_CHASE_SPEED_MS;
                     tws2812Data.h++;
                 }
             }
 
-            led_strip_hsv2rgb(tws2812Data.h, tws2812Data.s, tws2812Data.v, &tws2812Data.r, &tws2812Data.g, &tws2812Data.b);
+            if (tws2812Data.v != 0)
+            {
+                led_strip_hsv2rgb(tws2812Data.h, tws2812Data.s, tws2812Data.v, &tws2812Data.r, &tws2812Data.g, &tws2812Data.b);
+            }
 
             // ESP_LOGI(TAG,"RGB: R=%d, G=%d, B=%d\n", red, green, blue);
             led_strip_pixels[0] = tws2812Data.g;

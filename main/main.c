@@ -86,6 +86,26 @@ void adc_task(void *pvParameters)
 
 
 extern void vat_task(void);
+
+
+
+bool save_wifi_credentials(const char* ssid, const char* password) {
+    nvs_handle_t handle;
+    ESP_ERROR_CHECK(nvs_open("wifi_config", NVS_READWRITE, &handle));
+    
+    ESP_ERROR_CHECK(nvs_set_str(handle, "ssid", ssid));
+    ESP_ERROR_CHECK(nvs_set_str(handle, "pass", password));
+    
+    esp_err_t commit_err = nvs_commit(handle);
+    nvs_close(handle);
+    return commit_err == ESP_OK;
+}
+
+
+
+
+
+
 /***************************************************************************************************
  * 功能描述: 
  * 输入参数: 
@@ -95,6 +115,16 @@ extern void vat_task(void);
 ***************************************************************************************************/
 void app_main(void)
 {
+
+    //Initialize NVS
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+      ESP_ERROR_CHECK(nvs_flash_erase());
+      ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+
+
     ESP_LOGI(TAG, "---Initializing Key WIFI---");
     all_control_main(0, NULL);
 
@@ -102,22 +132,6 @@ void app_main(void)
     {
         vTaskDelay(3000 / portTICK_PERIOD_MS);
     }
-    
-
-    // xQueueLed = xQueueCreate(5,sizeof(struct tRgbKeyDef));
-    // xQueueKey = xQueueCreate(5,sizeof(struct tRgbKeyDef));
-
-
-    // xTaskCreate(vat_task, "vat_task", 1024*3, NULL, 9, NULL);
-    // xTaskCreate(usb_task, "usb_task", 4096*5, NULL, 15, NULL);
-    // xTaskCreate(dap_task, "dap_task", 4096, NULL, 10, NULL);
-    // xTaskCreate(wifi_task, "wifi_task", 4096*3, NULL, 5, NULL);
-    // xTaskCreate(ws2812_task, "ws2812_task", 1024*3, NULL, 5, NULL);
-    // xTaskCreate(key_task, "key_task", 1024*3, NULL, 6, NULL);
-
-    // xTaskCreate(adc_task, "adc_task", 1024*4, NULL, 1, NULL);
-
-
 
     vTaskDelay(3000 / portTICK_PERIOD_MS);
 
@@ -133,6 +147,9 @@ void app_main(void)
         printf("No entries found in NVS.\n");
         return;
     }
+
+    save_wifi_credentials("test_ssid2", "test_password2");
+
 
 
     while (res == ESP_OK) {
@@ -198,30 +215,7 @@ void app_main(void)
             default:
                 printf("%-9s | %-8s | unknown   | \n", entry_info.namespace_name, entry_info.key);
         }
-
-
-
         nvs_close(handle);
         res = nvs_entry_next(&it);
     }
-
-    // nvs_release_iterator(it);
-
-//     nvs_handle_t handle;
-//     esp_err_t err = nvs_open("wifi_config", NVS_READWRITE, &handle);
-//     if (err != ESP_OK) return;
-//     // 写入新的 SSID 到 NVS
-//     char new_ssid[32] = "new_ssid";
-//     nvs_set_str(handle, "sta.ssid", new_ssid);
-//     nvs_commit(handle); // 必须提交！
-//     nvs_close(handle);
-
-
-// // nvs_handle_t handle;
-// nvs_open("wifi_config", NVS_READONLY, &handle);
-// char ssid[32];
-// size_t ssid_len = sizeof(ssid);
-// nvs_get_str(handle, "sta.ssid", ssid, &ssid_len);
-// printf("Current SSID: %s\n", ssid); // 确认是否更新
-// nvs_close(handle);
 }
