@@ -30,7 +30,7 @@ QueueHandle_t xQueueLed;
 ***************************************************************************************************/
 void all_control_main(int argc,int *argv)
 {
-    xQueueLed = xQueueCreate(5,sizeof(struct tws2812RgbDef));
+    xQueueLed = xQueueCreate(5,sizeof(struct tws2812Def));
 
 
     xTaskCreate(ws2812_task, "ws2812_task", 1024*3, NULL, 5, NULL);
@@ -38,7 +38,7 @@ void all_control_main(int argc,int *argv)
     xTaskCreate(dap_task, "dap_task", 4096, NULL, 10, NULL);
 
     xTaskCreate(key_task, "key_task", 1024*3, NULL, 6, NULL);
-
+    xTaskCreate(wifi_task, "wifi_task", 4096*3, NULL, 5, NULL);
 
     while (true)
     {

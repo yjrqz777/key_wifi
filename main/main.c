@@ -82,7 +82,7 @@ void adc_task(void *pvParameters)
         // vTaskDelay(10 / portTICK_PERIOD_MS);
     }
 }
-// tws2812RgbDef tws2812Rgb;
+// tws2812Def tws2812Rgb;
 
 
 extern void vat_task(void);

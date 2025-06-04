@@ -19,13 +19,16 @@ typedef struct {
 } led_strip_encoder_config_t;
 
 
-typedef struct tws2812RgbDef
+typedef struct tws2812Def
 {
+    uint32_t h;
+    uint32_t s;
+    uint32_t v;
     uint8_t r;
     uint8_t g;
     uint8_t b;
     uint16_t u16time;
-} tws2812RgbDef;
+} tws2812Def;
 
 
 
@@ -37,9 +40,9 @@ extern QueueHandle_t xQueueLed;
 
 
 void all_control_main(int argc,int *argv);
-void key_task(void);
-void ws2812_task(void);
-
+void key_task(void *pvParameters);
+void ws2812_task(void *pvParameters);
+void wifi_task(void *pvParameters);
 
 
 

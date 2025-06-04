@@ -29,66 +29,54 @@ static const char *TAG = "GPIO BUTTON TEST";
 
 static void button_event_cb(void *arg, void *data)
 {
+    static tws2812Def tws2812Data = {0};
     button_event_t event = iot_button_get_event(arg);
     // ESP_LOGI(TAG, "%s", iot_button_get_event_str(event));
-    // if (BUTTON_PRESS_REPEAT == event || BUTTON_PRESS_REPEAT_DONE == event) {
-    //     ESP_LOGI(TAG, "\tREPEAT[%d]", iot_button_get_repeat(arg));
-    // }
 
-    // if (BUTTON_PRESS_UP == event || BUTTON_LONG_PRESS_HOLD == event || BUTTON_LONG_PRESS_UP == event) {
-    //     ESP_LOGI(TAG, "\tTICKS[%"PRIu32"]", iot_button_get_ticks_time(arg));
-    // }
+    if (BUTTON_PRESS_REPEAT == event || BUTTON_PRESS_REPEAT_DONE == event) {
+        ESP_LOGI(TAG, "\tREPEAT[%d]", iot_button_get_repeat(arg));
+    }
 
-    // if (BUTTON_MULTIPLE_CLICK == event) {
-    //     ESP_LOGI(TAG, "\tMULTIPLE[%d]", (int)data);
-    // }
-    static tws2812RgbDef rs2812RgbQueue = {255, 0, 0, 0};
+    if (BUTTON_PRESS_UP == event) 
+    {
+        tws2812Data.h += 1;
+        tws2812Data.s = 100;
+        tws2812Data.v = 0;
+        tws2812Data.u16time = 0;
+    }
+    if (BUTTON_LONG_PRESS_HOLD == event || BUTTON_LONG_PRESS_UP == event) 
+    {
+        ESP_LOGI(TAG, "\tTICKS[%"PRIu32"]", iot_button_get_ticks_time(arg));
+
+        tws2812Data.h += 1;
+        tws2812Data.s = 100;
+        tws2812Data.v = 5;
+        tws2812Data.u16time = 0;
+    }
+    if (BUTTON_MULTIPLE_CLICK == event) {
+        ESP_LOGI(TAG, "\tMULTIPLE[%d]", (int)data);
+    }
+    
     if (BUTTON_PRESS_END == event)
     {
         ESP_LOGI(TAG, "BUTTON_PRESS_END");
 
-        if (rs2812RgbQueue.b == 255)
-        {
-            rs2812RgbQueue.r = 255;
-            rs2812RgbQueue.g = 0;
-            rs2812RgbQueue.b = 0;
-        }
 
-        else if (rs2812RgbQueue.g == 255)
-        {
-            rs2812RgbQueue.r = 0;
-            rs2812RgbQueue.g = 0;
-            rs2812RgbQueue.b = 255;
-        }
-
-        else if (rs2812RgbQueue.r == 255)
-        {
-            rs2812RgbQueue.r = 0;
-            rs2812RgbQueue.g = 255;
-            rs2812RgbQueue.b = 0;
-        }
-
-
-        // if (rs2812RgbQueue.r == 0)
-        // {
-        //     rs2812RgbQueue.r = 255;
-        //     rs2812RgbQueue.g = 0;
-        //     rs2812RgbQueue.b = 0;
-        // }
-
-        rs2812RgbQueue.u16time = 0;
-        if (xQueueSend(xQueueLed, &rs2812RgbQueue, portMAX_DELAY) == pdTRUE) 
-        {
-            // printf("发送RGB: R=%d, G=%d, B=%d\n", AllQueue.r, AllQueue.g, AllQueue.b);
-        }
+        tws2812Data.h = 299;
+        tws2812Data.s = 100;
+        tws2812Data.v = 5;
+        tws2812Data.u16time = 0;
 
     }
     
-
+    if (xQueueSend(xQueueLed, &tws2812Data, portMAX_DELAY) == pdTRUE) 
+    {
+        // printf("发送RGB: R=%d, G=%d, B=%d\n", AllQueue.r, AllQueue.g, AllQueue.b);
+    }
 
 }
 
-void key_task(void)
+void key_task(void *pvParameters)
 {
     const button_config_t btn_cfg = {0};
     const button_gpio_config_t btn_gpio_cfg = {

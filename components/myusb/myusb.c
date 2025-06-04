@@ -352,26 +352,26 @@ const uint8_t winusbv2_descriptor[] = {
     /* String 3 (Serial) */
     0x2A, /* bLength */
     USB_DESCRIPTOR_TYPE_STRING,
-    'y', 0x00, /* wcChar0 */
-    'j', 0x00, /* wcChar1 */
-    '2', 0x00, /* wcChar2 */
-    '2', 0x00, /* wcChar3 */
-    '1', 0x00, /* wcChar4 */
-    '2', 0x00, /* wcChar5 */
-    '3', 0x00, /* wcChar6 */
-    '4', 0x00, /* wcChar7 */
-    '5', 0x00, /* wcChar8 */
-    '6', 0x00, /* wcChar9 */
-    '2', 0x00, /* wcChar10 */
-    '4', 0x00, /* wcChar11 */
-    '2', 0x00, /* wcChar12 */
-    '2', 0x00, /* wcChar13 */
-    '1', 0x00, /* wcChar14 */
-    '2', 0x00, /* wcChar15 */
-    '3', 0x00, /* wcChar16 */
-    '4', 0x00, /* wcChar17 */
-    '5', 0x00, /* wcChar18 */
-    '6', 0x00, /* wcChar19 */
+    'Y', 0x00, /* wcChar0 */
+    'J', 0x00, /* wcChar1 */
+    'R', 0x00, /* wcChar2 */
+    'Q', 0x00, /* wcChar3 */
+    'Z', 0x00, /* wcChar4 */
+    ' ', 0x00, /* wcChar5 */
+    '7', 0x00, /* wcChar6 */
+    '7', 0x00, /* wcChar7 */
+    '7', 0x00, /* wcChar8 */
+    ' ', 0x00, /* wcChar9 */
+    'U', 0x00, /* wcChar10 */
+    'S', 0x00, /* wcChar11 */
+    'B', 0x00, /* wcChar12 */
+    ' ', 0x00, /* wcChar13 */
+    'D', 0x00, /* wcChar14 */
+    'A', 0x00, /* wcChar15 */
+    'P', 0x00, /* wcChar16 */
+    ' ', 0x00, /* wcChar17 */
+    ' ', 0x00, /* wcChar18 */
+    ' ', 0x00, /* wcChar19 */
 
     /* String 4 (WinUSB接口名称) */
     0x1A, /* bLength: 11字符 * 2 + 2 = 0x1A */

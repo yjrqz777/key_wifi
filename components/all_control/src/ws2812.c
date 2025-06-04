@@ -19,7 +19,7 @@
 #define RMT_LED_STRIP_GPIO_NUM      48
 
 #define EXAMPLE_LED_NUMBERS         1
-#define EXAMPLE_CHASE_SPEED_MS      10
+#define EXAMPLE_CHASE_SPEED_MS      20
 static uint8_t led_strip_pixels[EXAMPLE_LED_NUMBERS * 3];
 static const char *TAG = "led_encoder";
 
@@ -145,7 +145,7 @@ err:
  * @brief Simple helper function, converting HSV color space to RGB color space
  *
  * Wiki: https://en.wikipedia.org/wiki/HSL_and_HSV
- *
+ *HSV模型表示色相（Hue）、饱和度（Saturation）和亮度（Value）
  */
 void led_strip_hsv2rgb(uint32_t h, uint32_t s, uint32_t v, uint32_t *r, uint32_t *g, uint32_t *b)
 {
@@ -199,12 +199,13 @@ void led_strip_hsv2rgb(uint32_t h, uint32_t s, uint32_t v, uint32_t *r, uint32_t
  * 返 回 值: 
  * 其它说明: 
 ***************************************************************************************************/
-void ws2812_task(void)
+void ws2812_task(void *pvParameters)
 {
-    uint8_t red = 0;
-    uint8_t green = 0;
-    uint8_t blue = 0;
-    tws2812RgbDef rs2812RgbQueue;
+    // uint8_t red = 0;
+    // uint8_t green = 0;
+    // uint8_t blue = 0;
+    uint32_t u16timecount = 0;
+    tws2812Def tws2812Data = {100, 100, 3, 0, 0, 0, 0};
     ESP_LOGI(TAG, "Create RMT TX channel");
     rmt_channel_handle_t led_chan = NULL;
     rmt_tx_channel_config_t tx_chan_config = {
@@ -231,17 +232,29 @@ void ws2812_task(void)
         .loop_count = 0, // no transfer loop
     };
     while (1) {
-            if (xQueueReceive(xQueueLed, &rs2812RgbQueue, pdMS_TO_TICKS(3)) == pdTRUE)
+            if (xQueueReceive(xQueueLed, &tws2812Data, pdMS_TO_TICKS(5)) == pdTRUE)
             {
-                red = rs2812RgbQueue.r;
-                green = rs2812RgbQueue.g;
-                blue = rs2812RgbQueue.b;
-                ESP_LOGI(TAG,"JIERGB: R=%d, G=%d, B=%d\n", rs2812RgbQueue.r, rs2812RgbQueue.g, rs2812RgbQueue.b);
+                u16timecount = 0;
+                // red = tws2812Data.r;
+                // green = tws2812Data.g;
+                // blue = tws2812Data.b;
+                // ESP_LOGI(TAG,"JIERGB: R=%d, G=%d, B=%d\n", tws2812Data.r, tws2812Data.g, tws2812Data.b);
             }
-            ESP_LOGI(TAG,"RGB: R=%d, G=%d, B=%d\n", red, green, blue);
-            led_strip_pixels[0] = green;
-            led_strip_pixels[1] = red;
-            led_strip_pixels[2] = blue;
+            else
+            {
+                if (++u16timecount > 10*60*1000 / EXAMPLE_CHASE_SPEED_MS)
+                {
+                    u16timecount = 10*60*1000 / EXAMPLE_CHASE_SPEED_MS;
+                    tws2812Data.h++;
+                }
+            }
+
+            led_strip_hsv2rgb(tws2812Data.h, tws2812Data.s, tws2812Data.v, &tws2812Data.r, &tws2812Data.g, &tws2812Data.b);
+
+            // ESP_LOGI(TAG,"RGB: R=%d, G=%d, B=%d\n", red, green, blue);
+            led_strip_pixels[0] = tws2812Data.g;
+            led_strip_pixels[1] = tws2812Data.r;
+            led_strip_pixels[2] = tws2812Data.b;
             // Flush RGB values to LEDs
             ESP_ERROR_CHECK(rmt_transmit(led_chan, led_encoder, led_strip_pixels, sizeof(led_strip_pixels), &tx_config));
             ESP_ERROR_CHECK(rmt_tx_wait_all_done(led_chan, portMAX_DELAY));
