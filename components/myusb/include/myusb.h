@@ -25,12 +25,12 @@
 #define WINUSB_IN_EP 0x81
 #define WINUSB_OUT_EP 0x01
 
-#define CDC_IN_EP 0x82
-#define CDC_OUT_EP 0x02
-#define CDC_INT_EP 0x83
+#define CDC_IN_EP 0x82      /*主机 IN*/
+#define CDC_OUT_EP 0x02     /*主机 OUT*/
+#define CDC_INT_EP 0x83     /*主机 INT*/
 
-#define MSC_IN_EP  0x84
-#define MSC_OUT_EP 0x04
+#define MSC_IN_EP  0x84         /*主机 IN*/
+#define MSC_OUT_EP 0x04         /*主机 OUT*/
 
 
 // #define USBD_VID 0xFFFE

@@ -1,7 +1,7 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-03-23 22:29:49
- * LastEditTime: 2025-06-05 23:01:04
+ * LastEditTime: 2025-06-09 22:35:42
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/myusb/virtualfat.c
@@ -57,28 +57,15 @@ DATA_START_SECTOR =
 
 
 /* 新增预置文本和文件元数据 */
-#define FILE_CONTENT      "This is virtual Fat !!! \n\
-The config file name is config.json\n\
+#define FILE_CONTENT "This is virtual Fat !!! \n\
+  _____ _     _       _             _      _               _   _____     _     _ _ _  \n\
+ |_   _| |__ (_)___  (_)___  __   _(_)_ __| |_ _   _  __ _| | |  ___|_ _| |_  | | | | \n\
+   | | | '_ \\| / __| | / __| \\ \\ / / | '__| __| | | |/ _` | | | |_ / _` | __| | | | | \n\
+   | | | | | | \\__ \\ | \\__ \\  \\ V /| | |  | |_| |_| | (_| | | |  _| (_| | |_  |_|_|_| \n\
+   |_| |_| |_|_|___/ |_|___/   \\_/ |_|_|   \\__|\\__,_|\\__,_|_| |_|  \\__,_|\\__| (_|_|_) \n\
 \n\
-{\n\
-\"sta_wifi\": [\n\
-    {\n\
-    \"note\": \"Don't be the same with ap_wifi\",\n\
-    \"en\": 1,\n\
-    \"ssid\": \"sta_wifi\",\n\
-    \"password\": \"12345678\"\n\
-    }\n\
-],\n\
-\"ap_wifi\": [\n\
-    {\n\
-    \"note\": \"Don't be the same with sta_wifi\",\n\
-    \"en\": 1,\n\
-    \"ssid\": \"test\",\n\
-    \"password\": \"12345678\"\n\
-    }\n\
-]\n\
-}\n\
-\r\n"
+YJRQZDAP_HELP_JSON_MAX:64Byte:\n\
+{\"ap\":{\"ssid\":\"test\",\"passwd\":\"12345678\"}} \n"
 #define FILE_SIZE        (sizeof(FILE_CONTENT) - 1)  // 15字节
 
 // 定义文件占用的簇号（FAT簇号从2开始）
@@ -466,30 +453,30 @@ int usbd_msc_sector_write(uint8_t busid, uint8_t lun, uint32_t sector, uint8_t *
         USB_LOG_RAW("write: lun=%d, sector=%lu, buffer = %s, length=%lu\r\n", lun, sector, buffer, length);
 
     
-        memcpy(content, buffer, 512);
-        content[length-1] = '\0';
+        // memcpy(content, buffer, 512);
+        // content[length-1] = '\0';
         
-        // 解析JSON
-        cJSON *config_json = cJSON_Parse(content);
+        // // 解析JSON
+        // cJSON *config_json = cJSON_Parse(content);
         
-        if (!config_json) {
-            // ESP_LOGE(TAG, "JSON解析失败");
-            return 0;
-        }
-        ESP_LOGI(TAG, "原始JSON: %s", cJSON_PrintUnformatted(config_json));
-        // ESP_LOGI(TAG, "JSON解析成功");
+        // if (!config_json) {
+        //     // ESP_LOGE(TAG, "JSON解析失败");
+        //     return 0;
+        // }
+        // ESP_LOGI(TAG, "原始JSON: %s", cJSON_PrintUnformatted(config_json));
+        // // ESP_LOGI(TAG, "JSON解析成功");
 
-        // 提取 sta_wifi 的 en 值
-        cJSON *sta_wifi = cJSON_GetObjectItem(config_json, "sta_wifi");
-        if (sta_wifi && cJSON_IsArray(sta_wifi)) {
-            cJSON *sta_item = cJSON_GetArrayItem(sta_wifi, 0);
-            if (sta_item) {
-                cJSON *en_sta = cJSON_GetObjectItem(sta_item, "en");
-                if (en_sta && cJSON_IsNumber(en_sta)) {
-                    printf("sta_wifi en 值: %d\n", en_sta->valueint);
-                }
-            }
-        }
+        // // 提取 sta_wifi 的 en 值
+        // cJSON *sta_wifi = cJSON_GetObjectItem(config_json, "sta_wifi");
+        // if (sta_wifi && cJSON_IsArray(sta_wifi)) {
+        //     cJSON *sta_item = cJSON_GetArrayItem(sta_wifi, 0);
+        //     if (sta_item) {
+        //         cJSON *en_sta = cJSON_GetObjectItem(sta_item, "en");
+        //         if (en_sta && cJSON_IsNumber(en_sta)) {
+        //             printf("sta_wifi en 值: %d\n", en_sta->valueint);
+        //         }
+        //     }
+        // }
 
     } 
     else

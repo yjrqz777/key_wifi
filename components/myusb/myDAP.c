@@ -1,7 +1,7 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-03-23 22:06:08
- * LastEditTime: 2025-03-23 22:54:51
+ * LastEditTime: 2025-06-09 22:37:37
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/myusb/myDAP.c
@@ -48,7 +48,14 @@ __attribute__ ((aligned (4))) USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t USB
 __attribute__ ((aligned (4))) uint16_t USB_RespSize[DAP_PACKET_COUNT];       
 
 
-
+/***************************************************************************************************
+ * 功能描述: 
+ * 输入参数: 
+ * 输出参数: 
+ * 返 回 值: 
+ * 其它说明: 
+ * param {uint8_t} idle
+***************************************************************************************************/
 void SetUSB_RequestIdle(uint8_t idle)
 {
     USB_RequestIdle = idle;
@@ -86,7 +93,16 @@ void dap_out_callback(uint8_t busid, uint8_t ep, uint32_t nbytes)
         USB_RequestIdle = 1U;
     }
 }
-
+/***************************************************************************************************
+ * 功能描述: 
+ * 输入参数: 
+ * 输出参数: 
+ * 返 回 值: 
+ * 其它说明: 
+ * param {uint8_t} busid
+ * param {uint8_t} ep
+ * param {uint32_t} nbytes
+***************************************************************************************************/
 void dap_in_callback(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
     if (USB_ResponseCountI != USB_ResponseCountO) {

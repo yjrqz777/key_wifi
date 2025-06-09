@@ -1,7 +1,7 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-06-08 22:51:42
- * LastEditTime: 2025-06-09 22:09:05
+ * LastEditTime: 2025-06-09 22:23:19
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/myusb/usbAT.c
@@ -179,9 +179,30 @@ void usb_CDC_ACM_Data_Dispose(uint32_t nbytes, uint8_t *read_buffer)
             usbd_ep_start_write(BUSID, CDC_IN_EP, (uint8_t *)u8help_buffer, sizeof(u8help_buffer));
         }
     }
-
+    
     if (nbytes >= 37 && 0 == tusbatdata.u8ok)
     {
+        if (read_buffer[0] != '{')
+        {
+            return;
+        }
+        if (read_buffer[1] != '\"')
+        {
+            return;
+        }
+        if (read_buffer[2] != 'a')
+        {
+            return;
+        }
+        if (read_buffer[3] != 'p')
+        {
+            return;
+        }
+        if (read_buffer[4] != '\"')
+        {
+            return;
+        }    
+
         memcpy(tusbatdata.u8read_buffer, read_buffer, nbytes);
         tusbatdata.u8ok = 1;
     }
@@ -217,6 +238,7 @@ uint8_t usbATLoop()
         cJSON *ap = cJSON_GetObjectItemCaseSensitive(config_json, "ap");
         if (!ap || !cJSON_IsObject(ap)) {
             printf("未找到 'ap' 对象\n");
+            memset(&tusbatdata, 0, sizeof(tusbatdata));
             cJSON_Delete(config_json);
             return 0;
         }
