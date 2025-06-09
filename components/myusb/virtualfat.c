@@ -1,7 +1,7 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-03-23 22:29:49
- * LastEditTime: 2025-04-06 18:19:11
+ * LastEditTime: 2025-06-05 23:01:04
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/myusb/virtualfat.c
@@ -466,30 +466,30 @@ int usbd_msc_sector_write(uint8_t busid, uint8_t lun, uint32_t sector, uint8_t *
         USB_LOG_RAW("write: lun=%d, sector=%lu, buffer = %s, length=%lu\r\n", lun, sector, buffer, length);
 
     
-    memcpy(content, buffer, 512);
-    content[length-1] = '\0';
-    
-    // 解析JSON
-    cJSON *config_json = cJSON_Parse(content);
-    
-    if (!config_json) {
-        // ESP_LOGE(TAG, "JSON解析失败");
-        return 0;
-    }
-    ESP_LOGI(TAG, "原始JSON: %s", cJSON_PrintUnformatted(config_json));
-    // ESP_LOGI(TAG, "JSON解析成功");
+        memcpy(content, buffer, 512);
+        content[length-1] = '\0';
+        
+        // 解析JSON
+        cJSON *config_json = cJSON_Parse(content);
+        
+        if (!config_json) {
+            // ESP_LOGE(TAG, "JSON解析失败");
+            return 0;
+        }
+        ESP_LOGI(TAG, "原始JSON: %s", cJSON_PrintUnformatted(config_json));
+        // ESP_LOGI(TAG, "JSON解析成功");
 
-    // 提取 sta_wifi 的 en 值
-    cJSON *sta_wifi = cJSON_GetObjectItem(config_json, "sta_wifi");
-    if (sta_wifi && cJSON_IsArray(sta_wifi)) {
-        cJSON *sta_item = cJSON_GetArrayItem(sta_wifi, 0);
-        if (sta_item) {
-            cJSON *en_sta = cJSON_GetObjectItem(sta_item, "en");
-            if (en_sta && cJSON_IsNumber(en_sta)) {
-                printf("sta_wifi en 值: %d\n", en_sta->valueint);
+        // 提取 sta_wifi 的 en 值
+        cJSON *sta_wifi = cJSON_GetObjectItem(config_json, "sta_wifi");
+        if (sta_wifi && cJSON_IsArray(sta_wifi)) {
+            cJSON *sta_item = cJSON_GetArrayItem(sta_wifi, 0);
+            if (sta_item) {
+                cJSON *en_sta = cJSON_GetObjectItem(sta_item, "en");
+                if (en_sta && cJSON_IsNumber(en_sta)) {
+                    printf("sta_wifi en 值: %d\n", en_sta->valueint);
+                }
             }
         }
-    }
 
     } 
     else

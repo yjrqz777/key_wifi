@@ -48,7 +48,10 @@
         "all_control.h": "c",
         "key.h": "c",
         "timers.h": "c",
-        "cjson.h": "c"
+        "cjson.h": "c",
+        "esp_task_wdt.h": "c",
+        "uart.h": "c",
+        "cstring": "c"
     },
     "idf.pythonInstallPath": "/usr/bin/python3",
     "files.exclude": {

@@ -64,7 +64,6 @@ void adc_task(void *pvParameters)
     adc_init_with_oneshot();
     while(1)
     {
-
         // ESP_LOGI(TAG, "key_task_run_with_oneshot begin\n");
         // ESP_ERROR_CHECK(adc_oneshot_read(adc_handle_with_oneshot,ADC_CHANNEL_2,&p));
         // voltage = p *3.3/4096;
@@ -89,18 +88,8 @@ extern void vat_task(void);
 
 
 
-bool save_wifi_credentials(const char* ssid, const char* password) {
-    nvs_handle_t handle;
-    ESP_ERROR_CHECK(nvs_open("wifi_config", NVS_READWRITE, &handle));
-    
-    ESP_ERROR_CHECK(nvs_set_str(handle, "ssid", ssid));
-    ESP_ERROR_CHECK(nvs_set_str(handle, "pass", password));
-    
-    esp_err_t commit_err = nvs_commit(handle);
-    nvs_close(handle);
-    return commit_err == ESP_OK;
-}
-
+#include <string.h>
+// 读取 WiFi 凭据的函数
 
 
 
@@ -123,10 +112,25 @@ void app_main(void)
       ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
-
+    // save_wifi_credentials("test2", "12345678");
 
     ESP_LOGI(TAG, "---Initializing Key WIFI---");
     all_control_main(0, NULL);
+
+
+    // char ssid[33];        // SSID 最大 32 字符 + NULL 终止符
+    // char password[65];    // 密码最大 64 字符 + NULL 终止符
+    // read_wifi_credentials(ssid, password);
+
+
+
+
+
+
+
+
+
+
 
     while (1)
     {
@@ -148,7 +152,7 @@ void app_main(void)
         return;
     }
 
-    save_wifi_credentials("test_ssid2", "test_password2");
+    // save_wifi_credentials("test_ssid2", "test_password2");
 
 
 

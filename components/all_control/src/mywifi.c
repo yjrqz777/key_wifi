@@ -1,7 +1,7 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-06-04 20:09:02
- * LastEditTime: 2025-06-04 22:17:55
+ * LastEditTime: 2025-06-09 22:02:13
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/all_control/src/mywifi.c
@@ -28,6 +28,8 @@
 
 #include "lwip/lwip_napt.h"
 #include "lwip/inet.h"
+
+#include "myusb.h"
 
 // #include "lwip/err.h"
 // #include "lwip/sys.h"
@@ -67,6 +69,12 @@ static struct
 
 
 httpd_handle_t start_webserver(void);
+
+
+
+
+
+
 
 
 /***************************************************************************************************
@@ -197,18 +205,17 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         }
     }
 }
-
+/***************************************************************************************************
+ * 功能描述: 
+ * 输入参数: 
+ * 输出参数: 
+ * 返 回 值: 
+ * 其它说明: 
+***************************************************************************************************/
 void wifi_sta_ap(void)
 {
-
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-
-    esp_netif_create_default_wifi_ap();
-    esp_netif_create_default_wifi_sta();
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    char u8ssid[33] = {0};        // SSID 最大 32 字符 + NULL 终止符
+    char u8password[65] = {0};    // 密码最大 64 字符 + NULL 终止符
 
     wifi_config_t AP_wifi_config = {
         .ap = {
@@ -238,6 +245,28 @@ void wifi_sta_ap(void)
         },
 
     };
+
+    if(1 == read_wifi_credentials(u8ssid, u8password))
+    {
+        // AP_wifi_config.ap.ssid = AP_ESP_WIFI_SSID;
+        // AP_wifi_config.ap.password = AP_ESP_WIFI_PASS;
+
+        memcpy(AP_wifi_config.ap.ssid, u8ssid, strlen(u8ssid));
+        memcpy(AP_wifi_config.ap.password, u8password, strlen(u8password));
+        AP_wifi_config.ap.ssid_len = strlen(u8ssid);
+        ESP_LOGI(TAG, "AP_wifi_config.ap.ssid=%s, AP_wifi_config.ap.password=%s", AP_wifi_config.ap.ssid, AP_wifi_config.ap.password);
+    }
+
+
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+    esp_netif_create_default_wifi_ap();
+    esp_netif_create_default_wifi_sta();
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &SAT_wifi_config));
@@ -271,7 +300,13 @@ void wifi_sta_ap(void)
 
 }
 
-
+/***************************************************************************************************
+ * 功能描述: 
+ * 输入参数: 
+ * 输出参数: 
+ * 返 回 值: 
+ * 其它说明: 
+***************************************************************************************************/
 void StaTimeout()
 {
     static uint16_t u16TimeCount = 0;

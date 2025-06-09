@@ -1,7 +1,7 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-03-19 19:37:18
- * LastEditTime: 2025-06-04 22:52:14
+ * LastEditTime: 2025-06-08 23:05:44
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/myusb/myusb.c
@@ -31,8 +31,8 @@
 #include "driver/gpio.h"
 #include "sdkconfig.h"
 #include "esp_log.h"
-
-
+#include "nvs_flash.h"
+#include "cJSON.h"
 
 #include "esp_task_wdt.h"
 #include "driver/uart.h"
@@ -422,6 +422,7 @@ const uint8_t winusbv2_descriptor[] = {
 
 
 
+
 /***************************************************************************************************
  * 功能描述: 
  * 输入参数: 
@@ -470,7 +471,16 @@ static void usbd_event_handler(uint8_t busid, uint8_t event)
  * 输入参数: 
  * 输出参数: 
  * 返 回 值: 
- * 其它说明: APSSID1APSSIDAPPASSWD12345678APPASSWD 37
+ * 其它说明: 
+***************************************************************************************************/
+extern void usb_AT(void *Pr);
+
+/***************************************************************************************************
+ * 功能描述: 
+ * 输入参数: 
+ * 输出参数: 
+ * 返 回 值: 
+ * 其它说明: APSSID1APSSIDAPPASSWD12345678APPASSWD 37 
  * param {uint8_t} busid
  * param {uint8_t} ep
  * param {uint32_t} nbytes
@@ -478,6 +488,8 @@ static void usbd_event_handler(uint8_t busid, uint8_t event)
 void usbd_cdc_acm_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
     USB_LOG_RAW("actual out len:%d\r\n", nbytes);
+
+    usb_CDC_ACM_Data_Dispose(nbytes, cdc_read_buffer);
 
     chry_ringbuffer_write(&g_uarttx, cdc_read_buffer, nbytes);
     if (chry_ringbuffer_get_free(&g_uarttx) >= nbytes)
@@ -758,7 +770,7 @@ void usb_task(void)
 
     my_USB_init(BUSID, ESP_USBD_BASE);
     Uart_init();
-
+    xTaskCreate(usb_AT, "usb_AT", 4096, NULL, 5, NULL);
     while (1)
     {
         len = uart_read_bytes(ECHO_UART_PORT_NUM, Rxdata, (BUF_SIZE - 1), 20 / portTICK_PERIOD_MS);

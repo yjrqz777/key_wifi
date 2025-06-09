@@ -5,7 +5,7 @@
 
 
 
-
+#include <stdbool.h>
 
 
 #define ECHO_TEST_TXD (4)
@@ -93,13 +93,22 @@
 
 extern char current_dap_mode;
 
+#include "stdio.h"
+typedef struct tusbatdataDef
+{
+    char u8read_buffer[128];
+    uint8_t u8ok;
+}tusbatdataDef;
+
+
+extern tusbatdataDef tusbatdata;
 
 
 
 void usb_task();
 void dap_task(void);
-
-
-
+bool save_wifi_credentials(const char* ssid, const char* password);
+uint8_t read_wifi_credentials(char* ssid, char* password);
+void usb_CDC_ACM_Data_Dispose(uint32_t nbytes, uint8_t *read_buffer);
 
 #endif // MYUSB_H
