@@ -1,7 +1,7 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-03-19 19:37:18
- * LastEditTime: 2025-06-08 23:05:44
+ * LastEditTime: 2025-06-12 22:54:21
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/myusb/myusb.c
@@ -487,7 +487,7 @@ extern void usb_AT(void *Pr);
 ***************************************************************************************************/
 void usbd_cdc_acm_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
-    USB_LOG_RAW("actual out len:%d\r\n", nbytes);
+    // USB_LOG_RAW("actual out len:%d\r\n", nbytes);
 
     usb_CDC_ACM_Data_Dispose(nbytes, cdc_read_buffer);
 
@@ -514,7 +514,7 @@ void usbd_cdc_acm_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
 ***************************************************************************************************/
 void usbd_cdc_acm_in(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
-    USB_LOG_RAW("actual in len:%d\r\n", nbytes);
+    // USB_LOG_RAW("actual in len:%d\r\n", nbytes);
 
     if ((nbytes % usbd_get_ep_mps(busid, ep)) == 0 && nbytes)
     {
@@ -773,8 +773,8 @@ void usb_task(void)
     xTaskCreate(usb_AT, "usb_AT", 4096, NULL, 5, NULL);
     while (1)
     {
-        len = uart_read_bytes(ECHO_UART_PORT_NUM, Rxdata, (BUF_SIZE - 1), 20 / portTICK_PERIOD_MS);
-        // USB_LOG_INFO(TAG, "uart_read_bytes len:%d", len);
+        len = uart_read_bytes(ECHO_UART_PORT_NUM, Rxdata, (BUF_SIZE - 1), 2 / portTICK_PERIOD_MS);
+        // USB_LOG_INFO("%d", len);
         usbd_ep_start_write(BUSID, CDC_IN_EP, (uint8_t *)Rxdata, len);
 
         if (uarttx_buff_full)
@@ -792,6 +792,6 @@ void usb_task(void)
                 uart_write_bytes(ECHO_UART_PORT_NUM, (const char *)Txdata, len);
             }
         }
-        vTaskDelay(5);
+        vTaskDelay(1);
     }
 }

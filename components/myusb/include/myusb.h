@@ -16,7 +16,7 @@
 #define ECHO_UART_PORT_NUM 2
 #define ECHO_UART_BAUD_RATE 115200
 
-#define BUF_SIZE (512)
+#define BUF_SIZE (1024)
 
 
 
