@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -20,6 +21,7 @@
 #include "cJSON.h"
 
 #include "all_control.h"
+#include "myusb.h"
 // #include "var.h"
 static const char *TAG = "WEB";
 /***************************************************************************************************
@@ -28,6 +30,8 @@ static const char *TAG = "WEB";
 
 extern const char root_start[] asm("_binary_root_html_start");
 extern const char root_end[] asm("_binary_root_html_end");
+extern const char serial_view_start[] asm("_binary_serial_view_html_start");
+extern const char serial_view_end[] asm("_binary_serial_view_html_end");
 
 
 
@@ -65,27 +69,44 @@ static esp_err_t root_get_handler(httpd_req_t *req)
 
     // 获取嵌入的 HTML 内容
     char *html = strndup((char*)root_start, html_len); // 复制到堆内存
+    if (html == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No memory");
+        return ESP_FAIL;
+    }
     
     // 动态获取 IP 地址
-    esp_netif_ip_info_t ip_info;
-    esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &ip_info);
+    esp_netif_ip_info_t ip_info = {0};
+    esp_netif_t *netif_ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+    esp_err_t ip_ret = ESP_FAIL;
+    if (netif_ap != NULL) {
+        ip_ret = esp_netif_get_ip_info(netif_ap, &ip_info);
+    }
     char ip_str[16];
-    snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&ip_info.ip));
+    if (ip_ret == ESP_OK) {
+        snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&ip_info.ip));
+    } else {
+        snprintf(ip_str, sizeof(ip_str), "0.0.0.0");
+    }
     ESP_LOGI(TAG, "IP Address: %s", ip_str);
-    // // 替换占位符
-                char *ip_placeholder = strstr(html, "%IP%");
-                // if (ip_placeholder) {
-                //     memmove(ip_placeholder + strlen(ip_str), 
-                //             ip_placeholder + 4, 
-                //             html + html_len - (ip_placeholder + 4));
-                //     memcpy(ip_placeholder, ip_str, strlen(ip_str));
-                // }
+    // 替换占位符
+    char *ip_placeholder = strstr(html, "%IP%");
+    if (ip_placeholder == NULL) {
+        ESP_LOGW(TAG, "No %%IP%% placeholder in root page");
+        httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
+        free(html);
+        return ESP_OK;
+    }
         
     // 发送响应
     
-// 计算新内存需求
+    // 计算新内存需求
     size_t new_len = html_len - 4 + strlen(ip_str) + 1; // +1保留终止符
     char *new_html = (char*)malloc(new_len);
+    if (new_html == NULL) {
+        free(html);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No memory");
+        return ESP_FAIL;
+    }
 
     // 分割处理字符串
     char *seg1_end = ip_placeholder;
@@ -110,6 +131,13 @@ static esp_err_t root_get_handler(httpd_req_t *req)
 
             free(html);
     return ESP_OK;
+}
+
+static esp_err_t serial_view_get_handler(httpd_req_t *req)
+{
+    size_t html_len = serial_view_end - serial_view_start;
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    return httpd_resp_send(req, serial_view_start, html_len);
 }
 /***************************************************************************************************
  * 功能描述: // 控制LED的处理函数
@@ -172,7 +200,6 @@ esp_err_t rgb_control_handler(httpd_req_t *req) {
     
     // 解析JSON
     cJSON *rgb_json = cJSON_Parse(content);
-    ESP_LOGI(TAG, "原始JSON: %s", cJSON_PrintUnformatted(rgb_json));
     if (!rgb_json) {
         ESP_LOGE(TAG, "JSON解析失败");
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
@@ -209,6 +236,81 @@ esp_err_t rgb_control_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+static esp_err_t serial_get_handler(httpd_req_t *req)
+{
+    char *serial_buf = (char *)malloc(4096);
+    if (serial_buf == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No memory");
+        return ESP_FAIL;
+    }
+
+    size_t used = usb_serial_log_snapshot(serial_buf, 4096);
+    httpd_resp_set_type(req, "text/plain; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    esp_err_t ret = httpd_resp_send(req, serial_buf, used);
+    free(serial_buf);
+    return ret;
+}
+
+static esp_err_t wifi_status_get_handler(httpd_req_t *req)
+{
+    bool ap_en = false;
+    bool sta_en = false;
+    esp_err_t err = wifi_get_ap_sta_enabled(&ap_en, &sta_en);
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "wifi status read failed");
+        return err;
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "ap", ap_en);
+    cJSON_AddBoolToObject(root, "sta", sta_en);
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    if (json == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json alloc failed");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t ret = httpd_resp_sendstr(req, json);
+    cJSON_free(json);
+    return ret;
+}
+
+static esp_err_t wifi_control_get_handler(httpd_req_t *req)
+{
+    char query[64] = {0};
+    char ap_val[8] = {0};
+    char sta_val[8] = {0};
+    bool ap_en = false;
+    bool sta_en = false;
+
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "missing query");
+        return ESP_FAIL;
+    }
+
+    if (httpd_query_key_value(query, "ap", ap_val, sizeof(ap_val)) != ESP_OK ||
+        httpd_query_key_value(query, "sta", sta_val, sizeof(sta_val)) != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "missing ap/sta");
+        return ESP_FAIL;
+    }
+
+    ap_en = (strcmp(ap_val, "1") == 0);
+    sta_en = (strcmp(sta_val, "1") == 0);
+
+    esp_err_t err = wifi_set_ap_sta_enabled(ap_en, sta_en);
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "wifi switch failed");
+        return err;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, "{\"ok\":true}");
+}
+
 
 
 
@@ -241,6 +343,34 @@ httpd_uri_t rgb_control = {
     .user_ctx  = NULL
 };
 
+httpd_uri_t serial_get = {
+    .uri       = "/serial",
+    .method    = HTTP_GET,
+    .handler   = serial_get_handler,
+    .user_ctx  = NULL
+};
+
+httpd_uri_t serial_view = {
+    .uri       = "/serial_view",
+    .method    = HTTP_GET,
+    .handler   = serial_view_get_handler,
+    .user_ctx  = NULL
+};
+
+httpd_uri_t wifi_status = {
+    .uri       = "/wifi_status",
+    .method    = HTTP_GET,
+    .handler   = wifi_status_get_handler,
+    .user_ctx  = NULL
+};
+
+httpd_uri_t wifi_control = {
+    .uri       = "/wifi_control",
+    .method    = HTTP_GET,
+    .handler   = wifi_control_get_handler,
+    .user_ctx  = NULL
+};
+
 
 /***************************************************************************************************
  * 功能描述: 
@@ -255,6 +385,7 @@ httpd_handle_t start_webserver(void)
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_open_sockets = 7;
     config.lru_purge_enable = true;
+    config.stack_size = 8192;
     // Start the httpd server
     ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
     if (httpd_start(&server, &config) == ESP_OK) {
@@ -265,8 +396,11 @@ httpd_handle_t start_webserver(void)
         // httpd_register_uri_handler(server, &get_status);
         // httpd_register_uri_handler(server, &set_led_brightness);
         httpd_register_uri_handler(server, &rgb_control);
+        httpd_register_uri_handler(server, &serial_get);
+        httpd_register_uri_handler(server, &serial_view);
+        httpd_register_uri_handler(server, &wifi_status);
+        httpd_register_uri_handler(server, &wifi_control);
         httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, http_404_error_handler);
     }
     return server;
 }
-

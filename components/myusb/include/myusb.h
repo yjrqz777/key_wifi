@@ -110,5 +110,7 @@ void dap_task(void);
 bool save_wifi_credentials(const char* ssid, const char* password);
 uint8_t read_wifi_credentials(char* ssid, char* password);
 void usb_CDC_ACM_Data_Dispose(uint32_t nbytes, uint8_t *read_buffer);
+void usb_serial_log_append(const uint8_t *data, size_t len);
+size_t usb_serial_log_snapshot(char *out, size_t out_size);
 
 #endif // MYUSB_H

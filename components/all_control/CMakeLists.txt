@@ -7,6 +7,5 @@ set(REQ driver esp_wifi esp_http_server espressif__button nvs_flash json DAP myu
 idf_component_register(SRCS "all_control.c" ${SRCS}
                     INCLUDE_DIRS "include"
                     REQUIRES ${REQ}
-                    EMBED_FILES root.html
+                    EMBED_FILES root.html serial_view.html
                     )
-

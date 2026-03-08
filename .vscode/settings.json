@@ -61,6 +61,7 @@
     "managed_components": false
     // "./node_modules": false
     },
-    "C_Cpp.errorSquiggles": "disabled"
+    "C_Cpp.errorSquiggles": "disabled",
+    "idf.currentSetup": "/home/yjrqz/esp/v5.1.5/esp-idf"
 
 }

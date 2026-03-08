@@ -1,7 +1,7 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-03-19 19:37:18
- * LastEditTime: 2025-06-12 22:54:21
+ * LastEditTime: 2026-03-08 19:09:46
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/myusb/myusb.c
@@ -22,6 +22,7 @@
 
 #include <errno.h>
 #include <dirent.h>
+#include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/timers.h"
@@ -62,7 +63,7 @@ static const char *TAG = "my USB";
 
 
 
-#define CONFIG_UARTTX_RINGBUF_SIZE (1024)
+#define CONFIG_UARTTX_RINGBUF_SIZE (4096)
 // #define CONFIG_USBRX_RINGBUF_SIZE  (8 * 1024)
 
 
@@ -94,6 +95,117 @@ USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t cdc_read_buffer[WINUSB_EP_MPS];
 // USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t write_buffer[2048];
 
 volatile bool ep_tx_busy_flag = false;
+
+#define SERIAL_LOG_BUF_SIZE 4096
+static char s_serial_log[SERIAL_LOG_BUF_SIZE];
+static size_t s_serial_log_len = 0;
+static portMUX_TYPE s_serial_log_mux = portMUX_INITIALIZER_UNLOCKED;
+
+static void usb_log_ascii(const uint8_t *data, uint32_t len)
+{
+    uint32_t show = (len > 64U) ? 64U : len;
+    char out[65];
+    for (uint32_t i = 0; i < show; i++) {
+        uint8_t ch = data[i];
+        if ((ch >= 32U && ch <= 126U) || ch == '\r' || ch == '\n' || ch == '\t') {
+            out[i] = (char)ch;
+        } else {
+            out[i] = '.';
+        }
+    }
+    out[show] = '\0';
+    USB_LOG_RAW("%s", out);
+    if (len > show) {
+        USB_LOG_RAW("...");
+    }
+    USB_LOG_RAW("\r\n");
+}
+
+void usb_serial_log_append(const uint8_t *data, size_t len)
+{
+    if ((data == NULL) || (len == 0)) {
+        return;
+    }
+
+    char local_buf[BUF_SIZE];
+    size_t local_len = (len > sizeof(local_buf)) ? sizeof(local_buf) : len;
+    for (size_t i = 0; i < local_len; i++) {
+        uint8_t ch = data[i];
+        if ((ch == '\r') || (ch == '\n') || (ch == '\t') || (ch >= 32 && ch <= 126)) {
+            local_buf[i] = (char)ch;
+        } else {
+            local_buf[i] = '.';
+        }
+    }
+
+    taskENTER_CRITICAL(&s_serial_log_mux);
+    if (local_len >= (SERIAL_LOG_BUF_SIZE - 1)) {
+        memcpy(s_serial_log, &local_buf[local_len - (SERIAL_LOG_BUF_SIZE - 1)], SERIAL_LOG_BUF_SIZE - 1);
+        s_serial_log_len = SERIAL_LOG_BUF_SIZE - 1;
+    } else {
+        size_t free_space = (SERIAL_LOG_BUF_SIZE - 1) - s_serial_log_len;
+        if (local_len > free_space) {
+            size_t drop_len = local_len - free_space;
+            memmove(s_serial_log, s_serial_log + drop_len, s_serial_log_len - drop_len);
+            s_serial_log_len -= drop_len;
+        }
+        memcpy(s_serial_log + s_serial_log_len, local_buf, local_len);
+        s_serial_log_len += local_len;
+    }
+    s_serial_log[s_serial_log_len] = '\0';
+    taskEXIT_CRITICAL(&s_serial_log_mux);
+}
+
+size_t usb_serial_log_snapshot(char *out, size_t out_size)
+{
+    if ((out == NULL) || (out_size == 0)) {
+        return 0;
+    }
+
+    taskENTER_CRITICAL(&s_serial_log_mux);
+    size_t copy_len = s_serial_log_len;
+    if (copy_len >= out_size) {
+        copy_len = out_size - 1;
+    }
+    memcpy(out, s_serial_log, copy_len);
+    out[copy_len] = '\0';
+    taskEXIT_CRITICAL(&s_serial_log_mux);
+    return copy_len;
+}
+
+static void usb_serial_log_append_direction(const char *dir, const uint8_t *data, size_t len)
+{
+    char prefix[24];
+    int n = snprintf(prefix, sizeof(prefix), "\r\n[%s] ", dir);
+    if (n > 0) {
+        usb_serial_log_append((const uint8_t *)prefix, (size_t)n);
+    }
+    usb_serial_log_append(data, len);
+}
+
+static bool drain_usb_to_uart(uint8_t busid, uint8_t *txdata, uint32_t txbuf_size)
+{
+    uint32_t used = chry_ringbuffer_get_used(&g_uarttx);
+    if (used == 0) {
+        if (uarttx_buff_full && chry_ringbuffer_get_free(&g_uarttx) >= WINUSB_EP_MPS) {
+            usbd_ep_start_read(busid, CDC_OUT_EP, cdc_read_buffer, WINUSB_EP_MPS);
+            uarttx_buff_full = 0;
+        }
+        return false;
+    }
+
+    uint32_t chunk = (used > txbuf_size) ? txbuf_size : used;
+    int len = (int)chry_ringbuffer_read(&g_uarttx, txdata, chunk);
+    if (len > 0) {
+        uart_write_bytes(ECHO_UART_PORT_NUM, (const char *)txdata, len);
+    }
+
+    if (uarttx_buff_full && chry_ringbuffer_get_free(&g_uarttx) >= WINUSB_EP_MPS) {
+        usbd_ep_start_read(busid, CDC_OUT_EP, cdc_read_buffer, WINUSB_EP_MPS);
+        uarttx_buff_full = 0;
+    }
+    return (len > 0);
+}
 
 /***************************************************************************************************/
 
@@ -487,12 +599,27 @@ extern void usb_AT(void *Pr);
 ***************************************************************************************************/
 void usbd_cdc_acm_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
-    // USB_LOG_RAW("actual out len:%d\r\n", nbytes);
+    (void)ep;
+    if (nbytes == 0) {
+        usbd_ep_start_read(busid, CDC_OUT_EP, cdc_read_buffer, WINUSB_EP_MPS);
+        return;
+    }
 
+    /* Host -> ESP data monitor */
+    USB_LOG_RAW("CDC OUT len:%lu data(ascii): ", (unsigned long)nbytes);
+    usb_log_ascii(cdc_read_buffer, nbytes);
+    usb_serial_log_append_direction("PC->DEV", cdc_read_buffer, (size_t)nbytes);
+
+    uint32_t write_len = chry_ringbuffer_write(&g_uarttx, cdc_read_buffer, nbytes);
+    if (write_len < nbytes) {
+        USB_LOG_RAW("CDC OUT drop:%lu\r\n", (unsigned long)(nbytes - write_len));
+        uarttx_buff_full = 1;
+    }
+
+    /* Keep AT parser path unchanged */
     usb_CDC_ACM_Data_Dispose(nbytes, cdc_read_buffer);
 
-    chry_ringbuffer_write(&g_uarttx, cdc_read_buffer, nbytes);
-    if (chry_ringbuffer_get_free(&g_uarttx) >= nbytes)
+    if (chry_ringbuffer_get_free(&g_uarttx) >= WINUSB_EP_MPS)
     {
         /* setup next out ep read transfer */
         usbd_ep_start_read(busid, CDC_OUT_EP, cdc_read_buffer, WINUSB_EP_MPS);
@@ -567,7 +694,6 @@ void my_USB_init(uint8_t busid, uintptr_t reg_base)
 {
 #ifdef CONFIG_USBDEV_ADVANCE_DESC
     usbd_desc_register(busid, &winusbv2_descriptor);
-        dsa
 #else
     usbd_desc_register(busid, winusbv2_descriptor);
 #endif
@@ -750,6 +876,17 @@ void usb_task(void)
     // esp_err_t ret;
     uint8_t *Rxdata = (uint8_t *)malloc(BUF_SIZE);
     uint8_t *Txdata = (uint8_t *)malloc(BUF_SIZE);
+    if ((Rxdata == NULL) || (Txdata == NULL)) {
+        USB_LOG_RAW("usb_task malloc failed\r\n");
+        if (Rxdata) {
+            free(Rxdata);
+        }
+        if (Txdata) {
+            free(Txdata);
+        }
+        vTaskDelete(NULL);
+        return;
+    }
     //  uint8_t u8data[65];
     int len = 0;
 
@@ -773,25 +910,27 @@ void usb_task(void)
     xTaskCreate(usb_AT, "usb_AT", 4096, NULL, 5, NULL);
     while (1)
     {
-        len = uart_read_bytes(ECHO_UART_PORT_NUM, Rxdata, (BUF_SIZE - 1), 2 / portTICK_PERIOD_MS);
-        // USB_LOG_INFO("%d", len);
-        usbd_ep_start_write(BUSID, CDC_IN_EP, (uint8_t *)Rxdata, len);
+        bool did_work = false;
 
-        if (uarttx_buff_full)
-        {
-            len = chry_ringbuffer_read(&g_uarttx, Txdata, BUF_SIZE);
-            uart_write_bytes(ECHO_UART_PORT_NUM, (const char *)Txdata, len);
-            usbd_ep_start_read(BUSID, CDC_OUT_EP, cdc_read_buffer, WINUSB_EP_MPS);
-            uarttx_buff_full = 0;
+        /* Prioritize Host->UART forwarding path */
+        while (drain_usb_to_uart(BUSID, Txdata, BUF_SIZE)) {
+            did_work = true;
         }
-        else
-        {
-            if (chry_ringbuffer_get_used(&g_uarttx))
-            {
-                len = chry_ringbuffer_read(&g_uarttx, Txdata, BUF_SIZE);
-                uart_write_bytes(ECHO_UART_PORT_NUM, (const char *)Txdata, len);
+
+        len = uart_read_bytes(ECHO_UART_PORT_NUM, Rxdata, (BUF_SIZE - 1), 0);
+        if (len > 0) {
+            did_work = true;
+            usb_serial_log_append_direction("DEV->PC", (const uint8_t *)Rxdata, (size_t)len);
+            if (!ep_tx_busy_flag) {
+                ep_tx_busy_flag = true;
+                if (usbd_ep_start_write(BUSID, CDC_IN_EP, (uint8_t *)Rxdata, len) < 0) {
+                    ep_tx_busy_flag = false;
+                }
             }
         }
-        vTaskDelay(1);
+
+        if (!did_work) {
+            vTaskDelay(1);
+        }
     }
 }
