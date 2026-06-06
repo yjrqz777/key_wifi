@@ -1,7 +1,7 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-03-19 19:37:18
- * LastEditTime: 2026-03-08 19:09:46
+ * LastEditTime: 2026-06-06 10:24:08
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/myusb/myusb.c
@@ -783,6 +783,47 @@ uint8_t Detection_Effect(uint8_t class, uint8_t data)
     }
     return 0x01;
 }
+
+static uint8_t uart_word_length_to_cdc_data_bits(uart_word_length_t data_bits)
+{
+    switch (data_bits) {
+    case UART_DATA_5_BITS:
+        return 5;
+    case UART_DATA_6_BITS:
+        return 6;
+    case UART_DATA_7_BITS:
+        return 7;
+    case UART_DATA_8_BITS:
+    default:
+        return 8;
+    }
+}
+
+static uint8_t uart_stop_bits_to_cdc_char_format(uart_stop_bits_t stop_bits)
+{
+    switch (stop_bits) {
+    case UART_STOP_BITS_1_5:
+        return 1;
+    case UART_STOP_BITS_2:
+        return 2;
+    case UART_STOP_BITS_1:
+    default:
+        return 0;
+    }
+}
+
+static uint8_t uart_parity_to_cdc_parity_type(uart_parity_t parity)
+{
+    switch (parity) {
+    case UART_PARITY_ODD:
+        return 1;
+    case UART_PARITY_EVEN:
+        return 2;
+    case UART_PARITY_DISABLE:
+    default:
+        return 0;
+    }
+}
 /***************************************************************************************************
  * 功能描述:
  * 输入参数:
@@ -816,20 +857,22 @@ void usbd_cdc_acm_set_line_coding(uint8_t busid, uint8_t intf, struct cdc_line_c
  ***************************************************************************************************/
 void usbd_cdc_acm_get_line_coding(uint8_t busid, uint8_t intf, struct cdc_line_coding *line_coding)
 {
-    uart_config_t uart_config = {0};
+    uint32_t baud_rate = ECHO_UART_BAUD_RATE;
+    uart_word_length_t data_bits = UART_DATA_8_BITS;
+    uart_stop_bits_t stop_bits = UART_STOP_BITS_1;
+    uart_parity_t parity = UART_PARITY_DISABLE;
     (void)busid;
     (void)intf;
 
-    uart_get_baudrate(ECHO_UART_PORT_NUM, &uart_config.baud_rate);
-    uart_get_word_length(ECHO_UART_PORT_NUM, &uart_config.data_bits);
-    uart_get_stop_bits(ECHO_UART_PORT_NUM, &uart_config.stop_bits);
-    // uart_get_parity(ECHO_UART_PORT_NUM,&uart_config.parity);
+    uart_get_baudrate(ECHO_UART_PORT_NUM, &baud_rate);
+    uart_get_word_length(ECHO_UART_PORT_NUM, &data_bits);
+    uart_get_stop_bits(ECHO_UART_PORT_NUM, &stop_bits);
+    uart_get_parity(ECHO_UART_PORT_NUM, &parity);
 
-    line_coding->dwDTERate = uart_config.baud_rate;
-    line_coding->bDataBits = uart_config.data_bits + 5;
-    line_coding->bCharFormat = uart_config.stop_bits - 1;
-    line_coding->bParityType = 0;
-    // line_coding->bParityType = uart_config.parity - 1;
+    line_coding->dwDTERate = baud_rate;
+    line_coding->bDataBits = uart_word_length_to_cdc_data_bits(data_bits);
+    line_coding->bCharFormat = uart_stop_bits_to_cdc_char_format(stop_bits);
+    line_coding->bParityType = uart_parity_to_cdc_parity_type(parity);
 }
 
 /***************************************************************************************************
@@ -871,7 +914,7 @@ void Uart_init(void)
  * 返 回 值: 
  * 其它说明: 
 ***************************************************************************************************/
-void usb_task(void)
+void usb_task(void *)
 {
     // esp_err_t ret;
     uint8_t *Rxdata = (uint8_t *)malloc(BUF_SIZE);

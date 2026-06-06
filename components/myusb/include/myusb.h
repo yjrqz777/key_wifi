@@ -105,8 +105,8 @@ extern tusbatdataDef tusbatdata;
 
 
 
-void usb_task();
-void dap_task(void);
+void usb_task(void *);
+void dap_task(void *);
 bool save_wifi_credentials(const char* ssid, const char* password);
 uint8_t read_wifi_credentials(char* ssid, char* password);
 void usb_CDC_ACM_Data_Dispose(uint32_t nbytes, uint8_t *read_buffer);

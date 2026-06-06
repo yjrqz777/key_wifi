@@ -1,7 +1,7 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-03-23 22:06:08
- * LastEditTime: 2025-06-09 22:37:37
+ * LastEditTime: 2026-06-06 10:07:55
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/myusb/myDAP.c
@@ -244,7 +244,7 @@ void SWD_Read_idcode()
  * 返 回 值: 
  * 其它说明: 
 ***************************************************************************************************/
-void dap_task(void)
+void dap_task(void *)
 {
     xSWD_read_idcodeTimer = xTimerCreate(
         "SWD_read_idcodeTimer",        // 定时器名字

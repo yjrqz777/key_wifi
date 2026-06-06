@@ -104,3 +104,8 @@ idf.py size-files
 ### release1.0.1
 
 - CDC ACM 虚拟串口 `help` 命令
+
+
+### release1.0.2
+
+- idf -> V5.5
