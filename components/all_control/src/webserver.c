@@ -69,9 +69,10 @@ static esp_err_t root_get_handler(httpd_req_t *req)
 
     // 获取嵌入的 HTML 内容
     char *html = strndup((char*)root_start, html_len); // 复制到堆内存
-    if (html == NULL) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No memory");
-        return ESP_FAIL;
+    if (!html) {
+        ESP_LOGE(TAG, "Failed to allocate HTML buffer");
+        httpd_resp_send_500(req);
+        return ESP_ERR_NO_MEM;
     }
     
     // 动态获取 IP 地址
@@ -89,39 +90,37 @@ static esp_err_t root_get_handler(httpd_req_t *req)
     }
     ESP_LOGI(TAG, "IP Address: %s", ip_str);
     // 替换占位符
+    const size_t placeholder_len = 4; // length of "%IP%"
     char *ip_placeholder = strstr(html, "%IP%");
-    if (ip_placeholder == NULL) {
-        ESP_LOGW(TAG, "No %%IP%% placeholder in root page");
-        httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
+    if (ip_placeholder) {
+        // 计算新内存需求
+        size_t new_len = html_len - placeholder_len + strlen(ip_str) + 1; // +1 保留终止符
+        char *new_html = (char*)malloc(new_len);
+        if (!new_html) {
+            ESP_LOGE(TAG, "Failed to allocate memory for IP replacement");
+            free(html);
+            httpd_resp_send_500(req);
+            return ESP_ERR_NO_MEM;
+        }
+
+        // 分割处理字符串
+        char *seg1_end = ip_placeholder;
+        size_t seg1_len = seg1_end - html;
+        size_t seg2_len = html_len - (seg1_end - html) - placeholder_len;
+
+        // 分段拷贝
+        memcpy(new_html, html, seg1_len);
+        memcpy(new_html + seg1_len, ip_str, strlen(ip_str));
+        memcpy(new_html + seg1_len + strlen(ip_str), seg1_end + placeholder_len, seg2_len);
+        new_html[new_len-1] = '\0';
+
+        // 释放原内存并替换指针
         free(html);
-        return ESP_OK;
+        html = new_html;
+        html_len = new_len - 1;
     }
-        
+
     // 发送响应
-    
-    // 计算新内存需求
-    size_t new_len = html_len - 4 + strlen(ip_str) + 1; // +1保留终止符
-    char *new_html = (char*)malloc(new_len);
-    if (new_html == NULL) {
-        free(html);
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No memory");
-        return ESP_FAIL;
-    }
-
-    // 分割处理字符串
-    char *seg1_end = ip_placeholder;
-    size_t seg1_len = seg1_end - html;
-    size_t seg2_len = html_len - (seg1_end - html) - 4;
-
-    // 分段拷贝
-    memcpy(new_html, html, seg1_len);
-    memcpy(new_html + seg1_len, ip_str, strlen(ip_str));
-    memcpy(new_html + seg1_len + strlen(ip_str), seg1_end + 4, seg2_len);
-    new_html[new_len-1] = '\0';
-
-    // 释放原内存并替换指针
-    free(html);
-    html = new_html;
 
 
     ESP_LOGI(TAG, "Serve root");
