@@ -211,9 +211,9 @@ void ws2812_task(void *pvParameters)
     rmt_tx_channel_config_t tx_chan_config = {
         .clk_src = RMT_CLK_SRC_DEFAULT, // select source clock
         .gpio_num = RMT_LED_STRIP_GPIO_NUM,
-        .mem_block_symbols = 64, // increase the block size can make the LED less flickering
+        .mem_block_symbols = 48, // one WS2812 LED only needs 24 data symbols plus reset
         .resolution_hz = RMT_LED_STRIP_RESOLUTION_HZ,
-        .trans_queue_depth = 4, // set the number of transactions that can be pending in the background
+        .trans_queue_depth = 1, // keep only one pending transaction for the status LED
     };
     ESP_ERROR_CHECK(rmt_new_tx_channel(&tx_chan_config, &led_chan));
 
@@ -232,9 +232,11 @@ void ws2812_task(void *pvParameters)
         .loop_count = 0, // no transfer loop
     };
     while (1) {
+            bool need_update = false;
             if (xQueueReceive(xQueueLed, &tws2812Data, pdMS_TO_TICKS(5)) == pdTRUE)
             {
                 u32timecount = tws2812Data.u32time;
+                need_update = true;
                 // red = tws2812Data.r;
                 // green = tws2812Data.g;
                 // blue = tws2812Data.b;
@@ -247,21 +249,30 @@ void ws2812_task(void *pvParameters)
                 {
                     u32timecount = 10*60*1000 / EXAMPLE_CHASE_SPEED_MS;
                     tws2812Data.h++;
+                    need_update = true;
                 }
             }
 
-            if (tws2812Data.v != 0)
-            {
-                led_strip_hsv2rgb(tws2812Data.h, tws2812Data.s, tws2812Data.v, &tws2812Data.r, &tws2812Data.g, &tws2812Data.b);
-            }
+            if (need_update) {
+                if (tws2812Data.v != 0)
+                {
+                    uint32_t r = 0;
+                    uint32_t g = 0;
+                    uint32_t b = 0;
+                    led_strip_hsv2rgb(tws2812Data.h, tws2812Data.s, tws2812Data.v, &r, &g, &b);
+                    tws2812Data.r = r;
+                    tws2812Data.g = g;
+                    tws2812Data.b = b;
+                }
 
-            // ESP_LOGI(TAG,"RGB: R=%d, G=%d, B=%d\n", red, green, blue);
-            led_strip_pixels[0] = tws2812Data.g;
-            led_strip_pixels[1] = tws2812Data.r;
-            led_strip_pixels[2] = tws2812Data.b;
-            // Flush RGB values to LEDs
-            ESP_ERROR_CHECK(rmt_transmit(led_chan, led_encoder, led_strip_pixels, sizeof(led_strip_pixels), &tx_config));
-            ESP_ERROR_CHECK(rmt_tx_wait_all_done(led_chan, portMAX_DELAY));
+                // ESP_LOGI(TAG,"RGB: R=%d, G=%d, B=%d\n", red, green, blue);
+                led_strip_pixels[0] = tws2812Data.g;
+                led_strip_pixels[1] = tws2812Data.r;
+                led_strip_pixels[2] = tws2812Data.b;
+                // Flush RGB values to LEDs
+                ESP_ERROR_CHECK(rmt_transmit(led_chan, led_encoder, led_strip_pixels, sizeof(led_strip_pixels), &tx_config));
+                ESP_ERROR_CHECK(rmt_tx_wait_all_done(led_chan, portMAX_DELAY));
+            }
             vTaskDelay(pdMS_TO_TICKS(EXAMPLE_CHASE_SPEED_MS));
             // memset(led_strip_pixels, 0, sizeof(led_strip_pixels));
             // ESP_ERROR_CHECK(rmt_transmit(led_chan, led_encoder, led_strip_pixels, sizeof(led_strip_pixels), &tx_config));

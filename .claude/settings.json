@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash -lc 'source ~/esp/v5.1.5/esp-idf/export.sh >/tmp/esp_export.log 2>&1 && idf.py size-components')"
+    ]
+  }
+}

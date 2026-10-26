@@ -156,6 +156,7 @@ uint8_t read_wifi_credentials(char* ssid, char* password)
         return 0;
     }
     memcpy(ssid, u8ssid, sizeof(u8ssid));
+    memcpy(password, u8password, sizeof(u8password));
     nvs_close(handle);
     return 1;
 }

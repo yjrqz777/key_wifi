@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ESP32 串口监控</title>
+  <style>
+    body { margin: 0; padding: 12px; font-family: Arial, sans-serif; background: #0f1720; color: #e6edf3; }
+    h1 { margin: 0 0 12px; font-size: 22px; }
+    .toolbar { margin-bottom: 12px; }
+    button { padding: 10px 12px; border: 0; border-radius: 6px; cursor: pointer; min-height: 40px; }
+    #serialLog {
+      height: calc(100dvh - 110px);
+      border: 1px solid #2f3c4e;
+      border-radius: 8px;
+      background: #0b1118;
+      color: #b8f8b8;
+      padding: 10px;
+      white-space: pre-wrap;
+      overflow-y: auto;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    @media (max-width: 480px) {
+      body { padding: 10px; }
+      h1 { font-size: 20px; }
+      button { width: 100%; }
+      #serialLog { height: calc(100dvh - 120px); }
+    }
+  </style>
+</head>
+<body>
+  <h1>串口监控</h1>
+  <div class="toolbar">
+    <button onclick="location.href='/'">返回首页</button>
+    <button onclick="clearSerialLog()">清除日志</button>
+  </div>
+  <pre id="serialLog">等待串口数据...</pre>
+
+  <script>
+    async function refreshSerialLog() {
+      try {
+        const response = await fetch('/serial');
+        if (!response.ok) return;
+        const text = await response.text();
+        const el = document.getElementById('serialLog');
+        const stickBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+        el.textContent = text.length ? text : '暂无串口数据';
+        if (stickBottom) el.scrollTop = el.scrollHeight;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function clearSerialLog() {
+      const el = document.getElementById('serialLog');
+      el.textContent = '';
+    }
+
+    setInterval(refreshSerialLog, 1000);
+    refreshSerialLog();
+  </script>
+</body>
+</html>

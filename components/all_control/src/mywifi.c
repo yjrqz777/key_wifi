@@ -1,7 +1,7 @@
 /***************************************************************************************************
  * Author: yjrqz777 3210551161@qq.com
  * Date: 2025-06-04 20:09:02
- * LastEditTime: 2025-06-09 22:02:13
+ * LastEditTime: 2026-03-08 19:00:01
  * LastEditors: yjrqz777 3210551161@qq.com
  * Description: 
  * FilePath: /key_wifi/components/all_control/src/mywifi.c
@@ -41,9 +41,9 @@
    If you'd rather not, just change the below entries to strings with
    the config you want - ie #define AP_WIFI_SSID "mywifissid"
 */
-#define AP_ESP_WIFI_SSID      "test"
+#define AP_ESP_WIFI_SSID      "dtest"
 #define AP_ESP_WIFI_PASS      "12345678"
-#define AP_ESP_WIFI_CHANNEL   7
+#define AP_ESP_WIFI_CHANNEL   3
 #define AP_MAX_STA_CONN       10
 
 #define TIMEOFF 3
@@ -66,10 +66,106 @@ static struct
     uint8_t u8StaStatus;  // 0:STA模式不激活,1:STA模式激活
 }twifiData;
 
+static wifi_config_t g_sta_wifi_config = {
+    .sta = {
+        .ssid = "STA_WIFI",
+        .password = "12345678",
+        .scan_method = WIFI_FAST_SCAN,
+        .threshold.authmode = WIFI_AUTH_WPA2_PSK,
+        .failure_retry_cnt = 5,
+    },
+};
 
 
 httpd_handle_t start_webserver(void);
 
+static bool ap_credentials_valid(const char *ssid, const char *password)
+{
+    size_t ssid_len = strnlen(ssid, 33);
+    size_t pass_len = strnlen(password, 65);
+
+    if (ssid_len == 0 || ssid_len > 32) {
+        return false;
+    }
+    if (!(pass_len == 0 || (pass_len >= 8 && pass_len <= 63))) {
+        return false;
+    }
+    return true;
+}
+
+static wifi_mode_t wifi_mode_from_enable(bool ap_enable, bool sta_enable)
+{
+    if (ap_enable && sta_enable) {
+        return WIFI_MODE_APSTA;
+    }
+    if (ap_enable) {
+        return WIFI_MODE_AP;
+    }
+    return WIFI_MODE_STA;
+}
+
+esp_err_t wifi_get_ap_sta_enabled(bool *ap_enable, bool *sta_enable)
+{
+    if ((ap_enable == NULL) || (sta_enable == NULL)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    wifi_mode_t mode;
+    esp_err_t err = esp_wifi_get_mode(&mode);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    *ap_enable = (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA);
+    *sta_enable = (mode == WIFI_MODE_STA || mode == WIFI_MODE_APSTA);
+    return ESP_OK;
+}
+
+esp_err_t wifi_set_ap_sta_enabled(bool ap_enable, bool sta_enable)
+{
+    if (!ap_enable && !sta_enable) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    wifi_mode_t target_mode = wifi_mode_from_enable(ap_enable, sta_enable);
+    wifi_mode_t current_mode;
+    esp_err_t err = esp_wifi_get_mode(&current_mode);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    if (current_mode == target_mode) {
+        if (sta_enable) {
+            esp_wifi_connect();
+        }
+        return ESP_OK;
+    }
+
+    err = esp_wifi_stop();
+    if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_STOPPED) {
+        return err;
+    }
+
+    err = esp_wifi_set_mode(target_mode);
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (sta_enable) {
+        err = esp_wifi_set_config(WIFI_IF_STA, &g_sta_wifi_config);
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+    err = esp_wifi_start();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    if (sta_enable) {
+        esp_wifi_connect();
+    }
+    return ESP_OK;
+}
 
 
 
@@ -226,36 +322,37 @@ void wifi_sta_ap(void)
             .max_connection = AP_MAX_STA_CONN,
             .authmode = WIFI_AUTH_WPA2_PSK,
             .pmf_cfg = {
-                    .required = true,
+                    .required = false,
+                    .capable = true,
             },
         },
     };
     // if (strlen(AP_ESP_WIFI_PASS) == 0) {
     //     AP_wifi_config.ap.authmode = WIFI_AUTH_OPEN;
     // }
-    wifi_config_t SAT_wifi_config = {
-        .sta = {
-            .ssid = "天翼2.4G",
-            .password = "66661111",
-            .scan_method = WIFI_FAST_SCAN,
-            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
-            // .sae_pwe_h2e = ESP_WIFI_SAE_MODE,
-            // .sae_h2e_identifier = AP_H2E_IDENTIFIER,
-            .failure_retry_cnt = 5,
-        },
 
-    };
+    // if(1 == read_wifi_credentials(u8ssid, u8password))
+    // {
+    //     if (ap_credentials_valid(u8ssid, u8password)) {
+    //         size_t ssid_len = strnlen(u8ssid, sizeof(u8ssid));
+    //         size_t pass_len = strnlen(u8password, sizeof(u8password));
 
-    if(1 == read_wifi_credentials(u8ssid, u8password))
-    {
-        // AP_wifi_config.ap.ssid = AP_ESP_WIFI_SSID;
-        // AP_wifi_config.ap.password = AP_ESP_WIFI_PASS;
+    //         memset(AP_wifi_config.ap.ssid, 0, sizeof(AP_wifi_config.ap.ssid));
+    //         memset(AP_wifi_config.ap.password, 0, sizeof(AP_wifi_config.ap.password));
+    //         memcpy(AP_wifi_config.ap.ssid, u8ssid, ssid_len);
+    //         memcpy(AP_wifi_config.ap.password, u8password, pass_len);
+    //         AP_wifi_config.ap.ssid_len = ssid_len;
 
-        memcpy(AP_wifi_config.ap.ssid, u8ssid, strlen(u8ssid));
-        memcpy(AP_wifi_config.ap.password, u8password, strlen(u8password));
-        AP_wifi_config.ap.ssid_len = strlen(u8ssid);
-        ESP_LOGI(TAG, "AP_wifi_config.ap.ssid=%s, AP_wifi_config.ap.password=%s", AP_wifi_config.ap.ssid, AP_wifi_config.ap.password);
-    }
+    //         if (pass_len == 0) {
+    //             AP_wifi_config.ap.authmode = WIFI_AUTH_OPEN;
+    //         } else {
+    //             AP_wifi_config.ap.authmode = WIFI_AUTH_WPA_WPA2_PSK;
+    //         }
+    //         ESP_LOGI(TAG, "Use saved AP credentials");
+    //     } else {
+    //         ESP_LOGW(TAG, "Saved AP credentials invalid, fallback to default");
+    //     }
+    // }
 
 
     ESP_ERROR_CHECK(esp_netif_init());
@@ -268,8 +365,8 @@ void wifi_sta_ap(void)
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &SAT_wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    // AP only at boot, STA config is set only when STA is enabled.
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &AP_wifi_config));
 
 
@@ -295,8 +392,8 @@ void wifi_sta_ap(void)
     inet_ntoa_r(ip_info.ip.addr, ip_addr, 16);
     ESP_LOGI(TAG, "Set up softAP with IP: %s", ip_addr);
 
-    ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s password:%s channel:%d",
-             AP_ESP_WIFI_SSID, AP_ESP_WIFI_PASS, AP_ESP_WIFI_CHANNEL);
+    ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s password:%s channel:%d authmode:%d",
+             AP_wifi_config.ap.ssid, AP_wifi_config.ap.password, AP_wifi_config.ap.channel, AP_wifi_config.ap.authmode);
 
 }
 
@@ -350,19 +447,20 @@ void wifi_task(void *pvParameters)
 {
 
 
-    xStaTimeoutTimer = xTimerCreate(
-        "xStaTimeoutTimer",        // 定时器名字
-        pdMS_TO_TICKS(1000),   // 定时器周期：1000ms
-        pdTRUE,                // 自动重载
-        (void *)0,             // 定时器ID
-        StaTimeout         // 到期时回调函数
-    );
+    // xStaTimeoutTimer = xTimerCreate(
+    //     "xStaTimeoutTimer",        // 定时器名字
+    //     pdMS_TO_TICKS(1000),   // 定时器周期：1000ms
+    //     pdTRUE,                // 自动重载
+    //     (void *)0,             // 定时器ID
+    //     StaTimeout         // 到期时回调函数
+    // );
 
 
-    if (xStaTimeoutTimer != NULL) {
-        // 启动定时器
-        xTimerStart(xStaTimeoutTimer, 0);
-    }
+    // if (xStaTimeoutTimer != NULL) {
+    //     // 启动定时器
+    //     xTimerStart(xStaTimeoutTimer, 0);
+    // }
+    xStaTimeoutTimer = NULL;
     // // 当需要重置定时器时
     // if (xTimerReset(xStaTimeoutTimer, portMAX_DELAY) != pdPASS) {
     //     // 处理失败情况

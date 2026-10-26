@@ -2,151 +2,371 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <!-- import CSS -->
-  <!-- <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css"> -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>ESP32 控制台</title>
   <style>
-    .slider-container { margin: 20px; }
-    .slider { width: 80%; margin: 10px 0; }
-    .color-box {
-        width: 100px; height: 100px;
-        border: 2px solid #333;
-        margin-top: 20px;
+    :root {
+      --bg: #f3f7f6;
+      --card: #ffffff;
+      --text: #20303a;
+      --muted: #64727d;
+      --line: #d9e2e7;
+      --accent: #0f9d8a;
+      --accent-soft: #e4f7f3;
+      --log-bg: #0e1a1f;
+      --log-text: #b6ffd1;
     }
-  /* CSS样式 */
-  form {
-    max-width: 400px;
-    /* margin: 10px auto 5px; auto 实现块级元素水平居中 */
-    margin: 20px 40px 20px;
-    padding: 20px;
-    background: #f9f9f9;
-    border-radius: 12px;
-  }
-  button {
-    max-width: 100px;
-    margin: 20px 40px 20px;
-    padding: 15px;
-    background: #f9f9f9;
-    border-radius: 12px;
-  }
 
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 8% 0%, #d8efea 0%, transparent 40%),
+        radial-gradient(circle at 92% 0%, #e6f2ff 0%, transparent 45%),
+        var(--bg);
+      color: var(--text);
+      font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+    }
 
-  label { 
-    display: block; 
-    margin: 1px auto 5px; /* auto 实现块级元素水平居中 */
-    color: #555; 
-  }
-  input[type="text"], input[type="password"] {
-    width: 90%;
-    padding: 10px 10px;
-    border: 2px solid #ddd;
-    border-radius: 8px;
-    font-size: 16px;
-    transition: all 0.3s ease;
-  }
-  input:focus {
-    border-color: #4CAF50;
-    box-shadow: 0 0 9px rgba(76, 175, 80, 0.3);
-    outline: none;
-  }
-  ::placeholder {
-    color: #bbb;
-    font-style: italic;
-  }
-  /* colorPreview{
-    width: 10px; height: 10px;
-    border: 2px solid #333;
-    margin-top: 20px;} */
-</style>
+    .page {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    .hero {
+      margin-bottom: 12px;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--card);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 26px;
+      letter-spacing: 0.3px;
+    }
+
+    .ip {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .ip-value {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid #b9dbd5;
+      background: var(--accent-soft);
+      color: #15695e;
+      font-weight: 700;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .card {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--card);
+    }
+
+    .card-title {
+      margin: 0 0 10px;
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .switch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 10px 0;
+      padding: 10px 12px;
+      border: 1px solid #dbe4e9;
+      border-radius: 10px;
+      background: #f9fcfc;
+    }
+    .switch-row span { font-weight: 700; }
+    .switch-row input[type="checkbox"] { transform: scale(1.25); }
+    .hint { margin-top: 8px; font-size: 13px; color: var(--muted); }
+
+    .button-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    button {
+      flex: 1 1 120px;
+      min-height: 42px;
+      padding: 10px 12px;
+      border: 1px solid #c8d7df;
+      border-radius: 10px;
+      background: #fff;
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    button:hover {
+      border-color: #98b5c2;
+    }
+
+    .slider {
+      width: 100%;
+      margin: 6px 0;
+      accent-color: var(--accent);
+    }
+
+    .value {
+      display: inline-block;
+      min-width: 28px;
+      margin-left: 6px;
+      font-weight: 700;
+      color: #215d70;
+    }
+
+    label {
+      display: block;
+      margin: 8px 0 5px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    input[type="text"], input[type="password"] {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #d3dee5;
+      border-radius: 9px;
+      font-size: 16px;
+      background: #fff;
+    }
+
+    input:focus {
+      border-color: #7cb7ad;
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(15, 157, 138, 0.12);
+    }
+
+    .log-card {
+      margin-top: 12px;
+      padding: 14px;
+      border: 1px solid #273640;
+      border-radius: 14px;
+      background: linear-gradient(160deg, #132028, #0c161b);
+    }
+
+    .log-title {
+      margin: 0;
+      color: #c9d6de;
+      font-size: 16px;
+    }
+
+    #serialLog {
+      width: 100%;
+      height: 260px;
+      margin: 10px 0 0;
+      padding: 12px;
+      border: 1px solid #324550;
+      border-radius: 8px;
+      background: var(--log-bg);
+      color: var(--log-text);
+      font-family: Consolas, Monaco, monospace;
+      font-size: 13px;
+      line-height: 1.35;
+      white-space: pre-wrap;
+      overflow-y: auto;
+    }
+
+    @media (max-width: 760px) {
+      .grid { grid-template-columns: 1fr; }
+      h1 { font-size: 22px; }
+      button { flex-basis: 100%; }
+      .page { padding: 12px; }
+    }
+  </style>
 </head>
 <body>
-<div class="slider-container">
-    <!-- RGB 颜色控制 -->
-    <h3>RGB 颜色调节</h3>
-    <input type="range" min="0" max="255" value="0" class="slider" id="red" data-param="r">
-    <span id="redValue">0</span><br>
-    
-    <input type="range" min="0" max="255" value="0" class="slider" id="green" data-param="g">
-    <span id="greenValue">0</span><br>
-    
-    <input type="range" min="0" max="255" value="0" class="slider" id="blue" data-param="b">
-    <span id="blueValue">0</span>
-    
-    <!-- 颜色预览 -->
-    <!-- <div class="color-box" id="colorPreview"></div> -->
-</div>
+  <div class="page">
+    <div class="hero">
+      <h1>ESP32 控制台</h1>
+      <p class="ip">当前IP地址: <span class="ip-value" id="ip">%IP%</span></p>
+    </div>
 
-<h1>设备状态</h1>
-<p>当前IP地址: <span id="ip">%IP%</span></p>
+    <div class="grid">
+      <div class="card">
+        <h3 class="card-title">RGB 颜色调节</h3>
+        <div>
+          <input type="range" min="0" max="255" value="0" class="slider" id="red" data-param="r">
+          <span class="value" id="redValue">0</span>
+        </div>
+        <div>
+          <input type="range" min="0" max="255" value="0" class="slider" id="green" data-param="g">
+          <span class="value" id="greenValue">0</span>
+        </div>
+        <div>
+          <input type="range" min="0" max="255" value="0" class="slider" id="blue" data-param="b">
+          <span class="value" id="blueValue">0</span>
+        </div>
 
-<div class="button-container">
-  <button onclick="fetch('/control?state=on')">打开LED</button>
-  <button onclick="fetch('/control?state=on')">关闭LED</button>
-</div>
+        <div class="button-container">
+          <button onclick="fetch('/control?state=on')">打开LED</button>
+          <button onclick="fetch('/control?state=off')">关闭LED</button>
+          <button onclick="location.href='/serial_view'">串口监控页</button>
+        </div>
+      </div>
 
-<div> 
-  <form action="">
-    <label style="text-align: center;" for="ssid">STA WIFI设置</label>
-    <label for="ssid">SSID</label>
-    <input type="text" id="stassid" name="stassid" placeholder="Wi-Fi名称" value="STA_WIFI" required>
-    <label for="passwd">PASSWD</label>
-    <input type="text" id="stapasswd" name="stapasswd" placeholder="至少8位密码" value="12345678" required>
-  </form>
-  <button style="text-align: center;" >STA设置</button>
-  <form action="">
-    <label style="text-align: center;" for="ssid">AP WIFI设置</label>
-    <label for="ssid">SSID</label>
-    <input type="text" id="stassid" name="stassid" placeholder="Wi-Fi名称" value="AP_WIFI" required>
-    <label for="passwd">PASSWD</label>
-    <input type="text" id="stapasswd" name="stapasswd" placeholder="至少8位密码" value="12345678" required>
-  </form>
-  <button >AP设置</button>
-</div>
+      <div class="card">
+        <h3 class="card-title">AP / STA 开关</h3>
+        <div class="switch-row">
+          <span>AP</span>
+          <input type="checkbox" id="apSwitch">
+        </div>
+        <div class="switch-row">
+          <span>STA</span>
+          <input type="checkbox" id="staSwitch">
+        </div>
+        <div class="button-container">
+          <button onclick="applyWifiSwitch()">应用开关</button>
+        </div>
+        <div class="hint" id="wifiStatusText">状态读取中...</div>
+      </div>
 
+      <div class="card">
+        <h3 class="card-title">STA WIFI设置</h3>
+        <label for="sta-ssid">SSID</label>
+        <input type="text" id="sta-ssid" name="stassid" placeholder="Wi-Fi名称" value="STA_WIFI" required>
+        <label for="sta-passwd">PASSWD</label>
+        <input type="text" id="sta-passwd" name="stapasswd" placeholder="至少8位密码" value="12345678" required>
+        <div class="button-container">
+          <button>STA设置</button>
+        </div>
+      </div>
 
-</body>
-<script>
-  // 统一处理所有滑条事件
-  document.querySelectorAll('.slider').forEach(slider => {
+      <div class="card">
+        <h3 class="card-title">AP WIFI设置</h3>
+        <label for="ap-ssid">SSID</label>
+        <input type="text" id="ap-ssid" name="apssid" placeholder="Wi-Fi名称" value="AP_WIFI" required>
+        <label for="ap-passwd">PASSWD</label>
+        <input type="text" id="ap-passwd" name="appasswd" placeholder="至少8位密码" value="12345678" required>
+        <div class="button-container">
+          <button>AP设置</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="log-card">
+      <h3 class="log-title">串口数据</h3>
+      <div class="button-container">
+        <button onclick="clearSerialLog()">清除日志</button>
+      </div>
+      <pre id="serialLog">等待串口数据...</pre>
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll('.slider').forEach(slider => {
       slider.oninput = function() {
-          // 更新显示值
-          document.getElementById(`${this.id}Value`).textContent = this.value;
-          
-          // 触发批量更新（带防抖）
-          debouncedUpdate();
+        document.getElementById(`${this.id}Value`).textContent = this.value;
+        debouncedUpdate();
       };
-  });
+    });
 
-  // 防抖函数（300ms延迟）
-  let debounceTimer;
-  function debouncedUpdate() {
+    let debounceTimer;
+    function debouncedUpdate() {
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(sendControlData, 300);
-  }
+    }
 
-  // 收集所有滑条数据并发送
-  function sendControlData() {
-      // const params = {
-      //     r: document.getElementById('red').value,
-      //     g: document.getElementById('green').value,
-      //     b: document.getElementById('blue').value
-      // };
+    function sendControlData() {
       const params = {
-  r: parseInt(document.getElementById('red').value, 10),
-  g: parseInt(document.getElementById('green').value, 10),
-  b: parseInt(document.getElementById('blue').value, 10)
-};
-      // 更新颜色预览
-      //document.getElementById('colorPreview').style.backgroundColor = `rgb(${params.r},${params.g},${params.b})`;
+        r: parseInt(document.getElementById('red').value, 10),
+        g: parseInt(document.getElementById('green').value, 10),
+        b: parseInt(document.getElementById('blue').value, 10)
+      };
 
-      // 发送 POST 请求（JSON 格式）
       fetch('/rgbcontrol', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(params)
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params)
       }).then(response => {
-          if (!response.ok) throw new Error('控制失败');
+        if (!response.ok) throw new Error('控制失败');
       }).catch(error => console.error(error));
-  }
-</script>
+    }
+
+    async function refreshSerialLog() {
+      try {
+        const response = await fetch('/serial');
+        if (!response.ok) {
+          return;
+        }
+        const text = await response.text();
+        const logEl = document.getElementById('serialLog');
+        const shouldStickBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 8;
+        logEl.textContent = text.length ? text : '暂无串口数据';
+        if (shouldStickBottom) {
+          logEl.scrollTop = logEl.scrollHeight;
+        }
+      } catch (e) {
+        console.error('读取串口日志失败', e);
+      }
+    }
+
+    function clearSerialLog() {
+      const logEl = document.getElementById('serialLog');
+      logEl.textContent = '';
+    }
+
+    function setWifiStatusText(text) {
+      document.getElementById('wifiStatusText').textContent = text;
+    }
+
+    async function refreshWifiStatus() {
+      try {
+        const resp = await fetch('/wifi_status');
+        if (!resp.ok) {
+          setWifiStatusText('状态读取失败');
+          return;
+        }
+        const data = await resp.json();
+        document.getElementById('apSwitch').checked = !!data.ap;
+        document.getElementById('staSwitch').checked = !!data.sta;
+        setWifiStatusText(`当前模式: AP=${data.ap ? '开' : '关'}, STA=${data.sta ? '开' : '关'}`);
+      } catch (e) {
+        setWifiStatusText('状态读取失败');
+      }
+    }
+
+    async function applyWifiSwitch() {
+      const ap = document.getElementById('apSwitch').checked ? 1 : 0;
+      const sta = document.getElementById('staSwitch').checked ? 1 : 0;
+      if (ap === 0 && sta === 0) {
+        setWifiStatusText('AP/STA 不能同时关闭');
+        return;
+      }
+      setWifiStatusText('正在切换...');
+      try {
+        const resp = await fetch(`/wifi_control?ap=${ap}&sta=${sta}`);
+        if (!resp.ok) {
+          setWifiStatusText('切换失败');
+          return;
+        }
+        await refreshWifiStatus();
+      } catch (e) {
+        setWifiStatusText('切换失败');
+      }
+    }
+
+    setInterval(refreshSerialLog, 1000);
+    refreshSerialLog();
+    refreshWifiStatus();
+  </script>
+</body>
 </html>
