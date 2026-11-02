@@ -8,7 +8,7 @@
                 // "${env:IDF_PATH}/components/**", // ESP-IDF 组件路径 (最重要！)
             ],
             "cStandard": "gnu17",
-            "cppStandard": "gnu++17",
+            "cppStandard": "gnu++17"
         }
     ],
     "version": 4
