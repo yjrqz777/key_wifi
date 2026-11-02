@@ -1,27 +1,13 @@
-# ESP32 分区表：16MB Flash
-# 布局：NVS + OTA data + PHY + factory + ota_0 + ota_1 + FAT storage
-# 注意：app 分区起始地址需 64KB 对齐，factory 显式从 0x20000 开始
-# 0x19000 ~ 0x1FFFF 为对齐保留空隙，共 28KB
+# ESP32 分区表：16MB Flash,,,,,
+# 布局：NVS + OTA data + PHY + factory + ota_0 + ota_1 + FAT storage,,,,,
+# 注意：app 分区起始地址需 64KB 对齐，factory 显式从 0x20000 开始,,,,,
+# 0x19000 ~ 0x1FFFF 为对齐保留空隙，共 28KB,,,,,
+# Name, Type, SubType, Offset, Size, Flags
 
-# Name,   Type, SubType, Offset,  Size, Flags
-
-# NVS：40KB，保存 WiFi 配置、用户参数、配网信息等
-  nvs,      data, nvs,     0x9000,  0xA000,
-
-# OTA data：8KB，记录当前从哪个 OTA 槽启动
-  otadata,  data, ota,     0x13000, 0x2000,
-
-# PHY init：16KB，RF 校准数据
-  phy_init, data, phy,     0x15000, 0x4000,
-
-# factory：2MB，出厂固件，首次启动/恢复使用
-  factory,  app,  factory, 0x20000, 2M,
-
-# ota_0：2MB，OTA 槽 0，起始自动为 0x220000
-  ota_0,    app,  ota_0,   ,        2M,
-
-# ota_1：2MB，OTA 槽 1，起始自动为 0x420000
-  ota_1,    app,  ota_1,   ,        2M,
-
-# storage：9MB FAT 文件存储，起始自动为 0x620000，结束 0xF20000
-  storage,  data, fat,     ,        9M,
+nvs,      data, nvs,     0x9000,  0xA000,
+otadata,  data, ota,     0x13000, 0x2000,
+phy_init, data, phy,     0x15000, 0x4000,
+factory,  app,  factory, 0x20000, 2M,
+ota_0,    app,  ota_0,   ,        2M,
+ota_1,    app,  ota_1,   ,        2M,
+storage,  data, fat,     ,        9M,
