@@ -20,6 +20,13 @@
  * For different scenarios and behaviour, Refer to README of this example.
  */
 
+/**
+ * @file myusb.c
+ * @brief 实现 USB 复合设备相关的描述符注册、端点回调与任务调度。
+ * @details usb_task 依次完成 DAP 状态、FAT 文件系统、MSC 虚拟 FAT 内容与 USB 初始化，
+ *          并循环转发 USB CDC 与 UART 之间的数据。
+ */
+
 #include <errno.h>
 #include <dirent.h>
 #include <stdlib.h>
@@ -63,44 +70,53 @@ static const char *TAG = "my USB";
 
 
 
-#define CONFIG_UARTTX_RINGBUF_SIZE (4096)
+#define CONFIG_UARTTX_RINGBUF_SIZE (4096) /* UART 发送方向环形缓冲区字节数，必须为 2 的幂 */
 // #define CONFIG_USBRX_RINGBUF_SIZE  (8 * 1024)
 
 
 
-extern __attribute__ ((aligned (4))) USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t USB_Request[DAP_PACKET_COUNT][DAP_PACKET_SIZE];  // Request  Buffer
-extern __attribute__ ((aligned (4))) USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t USB_Response[DAP_PACKET_COUNT][DAP_PACKET_SIZE]; // Response Buffer
+/* DAP 命令请求缓冲区，由 DAP 组件提供，需 4 字节对齐并放在非缓存 USB 内存 */
+extern __attribute__ ((aligned (4))) USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t USB_Request[DAP_PACKET_COUNT][DAP_PACKET_SIZE];
+/* DAP 命令响应缓冲区，由 DAP 组件提供，需 4 字节对齐并放在非缓存 USB 内存 */
+extern __attribute__ ((aligned (4))) USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t USB_Response[DAP_PACKET_COUNT][DAP_PACKET_SIZE];
+/* 各 DAP 响应包的实际长度，由 DAP 组件维护 */
 extern __attribute__ ((aligned (4))) uint16_t USB_RespSize[DAP_PACKET_COUNT];       
 /***************************************************************************************************/
 /* global */
-char current_dap_mode = 0;
+char current_dap_mode = 0; /* DAP 调试口模式：1 表示 SWD 引脚已使能，0 表示引脚已关闭 */
 /***************************************************************************************************/
 
 
 /***************************************************************************************************/
 /* part */
+/* UART 发送方向环形缓冲区的存储区，位于非缓存 RAM 且按 USB 对齐要求放置 */
 static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t uarttx_ringbuffer[CONFIG_UARTTX_RINGBUF_SIZE];
 // static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t usbrx_ringbuffer[CONFIG_USBRX_RINGBUF_SIZE];
 // static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t usb_tmpbuffer[DAP_PACKET_SIZE];
 
 // static volatile uint8_t usbrx_idle_flag = 0;
 // static volatile uint8_t usbtx_idle_flag = 0;
-static volatile uint8_t uarttx_buff_full = 0;
-chry_ringbuffer_t g_uarttx;
+static volatile uint8_t uarttx_buff_full = 0; /* 缓冲区满标志：为 1 时暂停启动下一次 CDC OUT 接收 */
+chry_ringbuffer_t g_uarttx;                   /* UART 发送方向环形缓冲区对象，连接 CDC OUT 与 UART 发送 */
 // chry_ringbuffer_t g_usbrx;
 
 
 // USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t usb_read_buffer[2048];
-USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t cdc_read_buffer[WINUSB_EP_MPS];
+USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t cdc_read_buffer[WINUSB_EP_MPS]; /* CDC OUT 单次接收缓冲区，长度为一个端点最大包 */
 // USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t write_buffer[2048];
 
-volatile bool ep_tx_busy_flag = false;
+volatile bool ep_tx_busy_flag = false; /* CDC IN 端点发送忙标志，避免发送完成前重入写端点 */
 
-#define SERIAL_LOG_BUF_SIZE 4096
-static char s_serial_log[SERIAL_LOG_BUF_SIZE];
-static size_t s_serial_log_len = 0;
-static portMUX_TYPE s_serial_log_mux = portMUX_INITIALIZER_UNLOCKED;
+#define SERIAL_LOG_BUF_SIZE 4096 /* CDC 串口镜像日志容量，供网页 /serial 读取 */
+static char s_serial_log[SERIAL_LOG_BUF_SIZE];                       /* 串口镜像日志正文，始终以 '\0' 结尾 */
+static size_t s_serial_log_len = 0;                                  /* 日志当前有效字节数 */
+static portMUX_TYPE s_serial_log_mux = portMUX_INITIALIZER_UNLOCKED; /* 日志读写的临界区锁 */
 
+/**
+ * @brief 把一段数据按可打印 ASCII 形式打印到调试输出，不可打印字符替换为点号。
+ * @param[in] data 待打印的数据。
+ * @param[in] len 数据字节数，最多打印 64 字节，超出部分以省略号表示。
+ */
 static void usb_log_ascii(const uint8_t *data, uint32_t len)
 {
     uint32_t show = (len > 64U) ? 64U : len;
@@ -121,6 +137,12 @@ static void usb_log_ascii(const uint8_t *data, uint32_t len)
     USB_LOG_RAW("\r\n");
 }
 
+/**
+ * @brief 把 CDC 串口数据追加到内存镜像日志，供网页 /serial 读取。
+ * @param[in] data 待追加的原始数据。
+ * @param[in] len 数据字节数，超出 BUF_SIZE 时只取前部。
+ * @note 不可打印字符会被替换为点号；日志满时丢弃最旧的数据，保证保留最新内容。
+ */
 void usb_serial_log_append(const uint8_t *data, size_t len)
 {
     if ((data == NULL) || (len == 0)) {
@@ -156,6 +178,12 @@ void usb_serial_log_append(const uint8_t *data, size_t len)
     taskEXIT_CRITICAL(&s_serial_log_mux);
 }
 
+/**
+ * @brief 拷贝一份串口镜像日志快照。
+ * @param[out] out 接收日志文本的缓冲区，写入后以 '\0' 结尾。
+ * @param[in] out_size 缓冲区字节数，可容纳的最大有效字符数为 out_size - 1。
+ * @return 实际拷贝的字节数，不包含结尾 '\0'。
+ */
 size_t usb_serial_log_snapshot(char *out, size_t out_size)
 {
     if ((out == NULL) || (out_size == 0)) {
@@ -173,6 +201,12 @@ size_t usb_serial_log_snapshot(char *out, size_t out_size)
     return copy_len;
 }
 
+/**
+ * @brief 在日志中按方向追加一段带 [PC->DEV] 或 [DEV->PC] 前缀的数据。
+ * @param[in] dir 方向标记文本。
+ * @param[in] data 待追加的原始数据。
+ * @param[in] len 数据字节数。
+ */
 static void usb_serial_log_append_direction(const char *dir, const uint8_t *data, size_t len)
 {
     char prefix[24];
@@ -183,6 +217,14 @@ static void usb_serial_log_append_direction(const char *dir, const uint8_t *data
     usb_serial_log_append(data, len);
 }
 
+/**
+ * @brief 把 UART 发送环形缓冲区中的数据搬运到 UART 外设。
+ * @param[in] busid USB 总线编号，用于在缓冲区腾空后重启 CDC OUT 接收。
+ * @param[in,out] txdata 搬运用的中转缓冲区。
+ * @param[in] txbuf_size 中转缓冲区字节数，单次搬运不超过该长度。
+ * @return true 本次搬出了数据；false 环形缓冲区为空。
+ * @note 缓冲区此前因满而暂停接收时，只要剩余空间达到一个端点最大包就重新启动 CDC OUT 接收。
+ */
 static bool drain_usb_to_uart(uint8_t busid, uint8_t *txdata, uint32_t txbuf_size)
 {
     uint32_t used = chry_ringbuffer_get_used(&g_uarttx);
@@ -212,11 +254,13 @@ static bool drain_usb_to_uart(uint8_t busid, uint8_t *txdata, uint32_t txbuf_siz
 
 
 
+/* DAP 组件导出的接口，供端点回调与调试口状态复位使用 */
 void SetUSB_RequestIdle(uint8_t idle);
 void dap_in_callback(uint8_t busid, uint8_t ep, uint32_t nbytes);
 void dap_out_callback(uint8_t busid, uint8_t ep, uint32_t nbytes);
 
 
+/* USB 虚拟文件系统组件导出的接口，用于初始化 MSC 的虚拟 FAT 内容 */
 void chry_dap_state_init(void);
 void create_readme_file_entry(void);
 void init_fat_table(void);
@@ -227,6 +271,7 @@ void prepare_file_content(void);
 
 
 
+/* WinUSB 的 MS OS 2.0 描述符集合：声明 DAP 功能接口的兼容 ID 与设备接口 GUID */
 __ALIGN_BEGIN const uint8_t USBD_WinUSBDescriptorSetDescriptor[] = {
     WBVAL(WINUSB_DESCRIPTOR_SET_HEADER_SIZE), /* wLength */
     WBVAL(WINUSB_SET_HEADER_DESCRIPTOR_TYPE), /* wDescriptorType */
@@ -286,11 +331,12 @@ __ALIGN_BEGIN const uint8_t USBD_WinUSBDescriptorSetDescriptor[] = {
 #endif
 };
 
-#define USBD_NUM_DEV_CAPABILITIES (USBD_WEBUSB_ENABLE + USBD_WINUSB_ENABLE)
+#define USBD_NUM_DEV_CAPABILITIES (USBD_WEBUSB_ENABLE + USBD_WINUSB_ENABLE) /* 设备能力描述符个数 */
 
-#define USBD_WEBUSB_DESC_LEN 24
-#define USBD_WINUSB_DESC_LEN 28
+#define USBD_WEBUSB_DESC_LEN 24 /* WebUSB 设备能力描述符长度 */
+#define USBD_WINUSB_DESC_LEN 28 /* WinUSB 设备能力描述符长度 */
 
+/* BOS 描述符总长度：头部 5 字节加上各设备能力描述符长度 */
 #define USBD_BOS_WTOTALLENGTH (0x05 +                                      \
                                USBD_WEBUSB_DESC_LEN * USBD_WEBUSB_ENABLE + \
                                USBD_WINUSB_DESC_LEN * USBD_WINUSB_ENABLE)
@@ -299,6 +345,7 @@ __ALIGN_BEGIN const uint8_t USBD_WinUSBDescriptorSetDescriptor[] = {
 
 
 
+/* BOS 描述符：登记 WebUSB 与 WinUSB 两项平台能力，供主机枚举时识别 */
 __ALIGN_BEGIN const uint8_t USBD_BinaryObjectStoreDescriptor[] = {
     0x05,                         /* bLength */
     0x0f,                         /* bDescriptorType */
@@ -333,16 +380,19 @@ __ALIGN_BEGIN const uint8_t USBD_BinaryObjectStoreDescriptor[] = {
 #endif
 };
 
+/* MS OS 2.0 描述符集合，挂到设备枚举时返回给 Windows 主机 */
 struct usb_msosv2_descriptor msosv2_desc = {
     .vendor_code = USBD_WINUSB_VENDOR_CODE,
     .compat_id = USBD_WinUSBDescriptorSetDescriptor,
     .compat_id_len = USBD_WINUSB_DESC_SET_LEN,
 };
 
+/* BOS 描述符对象，挂到设备枚举时返回给支持 BOS 的主机 */
 struct usb_bos_descriptor bos_desc = {
     .string = USBD_BinaryObjectStoreDescriptor,
     .string_len = USBD_BOS_WTOTALLENGTH};
 
+/* 高级描述符模式：设备描述符、配置描述符、限定符描述符与字符串描述符分开返回 */
 #ifdef CONFIG_USBDEV_ADVANCE_DESC
 static const uint8_t device_descriptor[] = {
     USB_DEVICE_DESCRIPTOR_INIT(USB_2_1, 0xEF, 0x02, 0x01, USBD_VID, USBD_PID, 0x0100, 0x01)};
@@ -374,6 +424,7 @@ static const uint8_t device_quality_descriptor[] = {
     0x00,
 };
 
+/* 字符串描述符表：0 语言 ID，1 厂商，2 产品，3 序列号，4 WinUSB 接口名，5 CDC 接口名 */
 static const char *string_descriptors[] = {
     (const char[]){0x09, 0x04}, /* Langid */
     "CherryUSB",                /* Manufacturer */
@@ -407,6 +458,7 @@ static const char *string_descriptor_callback(uint8_t speed, uint8_t index)
     return string_descriptors[index];
 }
 
+/* 描述符回调集合，供 CherryUSB 在枚举过程中按类型取用 */
 const struct usb_descriptor winusbv2_descriptor = {
     .device_descriptor_callback = device_descriptor_callback,
     .config_descriptor_callback = config_descriptor_callback,
@@ -415,6 +467,7 @@ const struct usb_descriptor winusbv2_descriptor = {
     .msosv2_descriptor = &msosv2_desc,
     .bos_descriptor = &bos_desc};
 #else
+/* 非高级描述符模式：设备、配置、接口、端点与字符串描述符按枚举顺序拼成一个连续数组 */
 const uint8_t winusbv2_descriptor[] = {
     USB_DEVICE_DESCRIPTOR_INIT(USB_2_1, 0xEF, 0x02, 0x01, USBD_VID, USBD_PID, 0x0100, 0x01),
     /* Configuration 0 */
@@ -535,16 +588,12 @@ const uint8_t winusbv2_descriptor[] = {
 
 
 
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
- * param {uint8_t} busid
- * param {uint8_t} event
-***************************************************************************************************/
-
+/**
+ * @brief 处理 CherryUSB 设备事件。
+ * @param[in] busid USB 总线编号。
+ * @param[in] event 事件类型，仅配置完成事件需要启动首批端点接收。
+ * @note 配置完成后清除发送忙标志，并分别启动 WinUSB OUT 与 CDC OUT 的首次接收。
+ */
 static void usbd_event_handler(uint8_t busid, uint8_t event)
 {
     switch (event)
@@ -561,9 +610,10 @@ static void usbd_event_handler(uint8_t busid, uint8_t event)
         break;
     case USBD_EVENT_CONFIGURED:
         ep_tx_busy_flag = false;
-        /* setup first out ep read transfer */
+        /* 复位 DAP 请求空闲状态，允许接收主机的新命令 */
         SetUSB_RequestIdle(0);
 
+        /* 启动 WinUSB OUT 与 CDC OUT 的首次接收 */
         usbd_ep_start_read(busid, WINUSB_OUT_EP, USB_Request[0], DAP_PACKET_SIZE);
         usbd_ep_start_read(busid, CDC_OUT_EP, cdc_read_buffer, WINUSB_EP_MPS);
         break;
@@ -578,25 +628,17 @@ static void usbd_event_handler(uint8_t busid, uint8_t event)
 }
 
 
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
-***************************************************************************************************/
+/* AT 命令处理任务入口，实现在 usbAT.c 中 */
 extern void usb_AT(void *Pr);
 
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: APSSID1APSSIDAPPASSWD12345678APPASSWD 37 
- * param {uint8_t} busid
- * param {uint8_t} ep
- * param {uint32_t} nbytes
-***************************************************************************************************/
+/**
+ * @brief CDC OUT 端点接收完成回调，把主机数据转发到 UART 并写入串口镜像日志。
+ * @param[in] busid USB 总线编号。
+ * @param[in] ep 触发回调的端点地址，本实现不使用。
+ * @param[in] nbytes 本次接收到的字节数，为 0 时只重启接收。
+ * @note 环形缓冲区剩余空间不足一个最大包时置满标志并停止启动接收，等待发送端消费后由转发路径重新启动。
+ * @warning 缓冲区空间不足的数据会被丢弃，丢弃字节数通过调试输出打印。
+ */
 void usbd_cdc_acm_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
     (void)ep;
@@ -605,7 +647,7 @@ void usbd_cdc_acm_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
         return;
     }
 
-    /* Host -> ESP data monitor */
+    /* 主机到设备方向的数据监视：调试打印二进制收发内容 */
     USB_LOG_RAW("CDC OUT len:%lu data(ascii): ", (unsigned long)nbytes);
     usb_log_ascii(cdc_read_buffer, nbytes);
     usb_serial_log_append_direction("PC->DEV", cdc_read_buffer, (size_t)nbytes);
@@ -616,12 +658,12 @@ void usbd_cdc_acm_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
         uarttx_buff_full = 1;
     }
 
-    /* Keep AT parser path unchanged */
+    /* 保持 AT 命令解析路径不变，数据同时送给 usbAT.c 处理 */
     usb_CDC_ACM_Data_Dispose(nbytes, cdc_read_buffer);
 
     if (chry_ringbuffer_get_free(&g_uarttx) >= WINUSB_EP_MPS)
     {
-        /* setup next out ep read transfer */
+        /* 缓冲区空间足够，启动下一次 CDC OUT 接收 */
         usbd_ep_start_read(busid, CDC_OUT_EP, cdc_read_buffer, WINUSB_EP_MPS);
     }
     else
@@ -629,23 +671,21 @@ void usbd_cdc_acm_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
         uarttx_buff_full = 1;
     }
 }
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
- * param {uint8_t} busid
- * param {uint8_t} ep
- * param {uint32_t} nbytes
-***************************************************************************************************/
+
+/**
+ * @brief CDC IN 端点发送完成回调。
+ * @param[in] busid USB 总线编号。
+ * @param[in] ep CDC IN 端点地址。
+ * @param[in] nbytes 本次发送的字节数。
+ * @note 发送长度为端点最大包整数倍时补发零长度包，否则清除发送忙标志，允许任务继续写端点。
+ */
 void usbd_cdc_acm_in(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
     // USB_LOG_RAW("actual in len:%d\r\n", nbytes);
 
     if ((nbytes % usbd_get_ep_mps(busid, ep)) == 0 && nbytes)
     {
-        /* send zlp */
+        /* 发送长度为整数个最大包，补发零长度包结束本次传输 */
         usbd_ep_start_write(busid, CDC_IN_EP, NULL, 0);
     }
     else
@@ -654,42 +694,38 @@ void usbd_cdc_acm_in(uint8_t busid, uint8_t ep, uint32_t nbytes)
     }
 }
 
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
-***************************************************************************************************/
+/* WinUSB 批量端点：OUT 端点的回调由 DAP 组件实现，接收调试命令 */
 struct usbd_endpoint winusb_out_ep1 = {
     .ep_addr = WINUSB_OUT_EP,
     .ep_cb = dap_out_callback};
 
+/* WinUSB 批量端点：IN 端点的回调由 DAP 组件实现，回传调试响应 */
 struct usbd_endpoint winusb_in_ep1 = {
     .ep_addr = WINUSB_IN_EP,
     .ep_cb = dap_in_callback};
 
+/* CDC ACM 端点：OUT 端点接收主机数据并转发到 UART */
 static struct usbd_endpoint cdc_out_ep = {
     .ep_addr = CDC_OUT_EP,
     .ep_cb = usbd_cdc_acm_out};
 
+/* CDC ACM 端点：IN 端点回传 UART 收到的数据 */
 static struct usbd_endpoint cdc_in_ep = {
     .ep_addr = CDC_IN_EP,
     .ep_cb = usbd_cdc_acm_in};
 
+/* 接口实例：WinUSB（DAP）、CDC 的两个接口，以及按需启用的 MSC 接口 */
 struct usbd_interface winusb_intf;
 struct usbd_interface intf1;
 struct usbd_interface intf2;
 struct usbd_interface intf3;
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
- * param {uint8_t} busid
- * param {uintptr_t} reg_base
-***************************************************************************************************/
+
+/**
+ * @brief 注册描述符、接口和端点并启动 USB 设备协议栈。
+ * @param[in] busid USB 总线编号。
+ * @param[in] reg_base USB 控制器寄存器基址。
+ * @note 启用的功能包含 WinUSB（DAP）、CDC ACM，以及由 CONFIG_CHERRYDAP_USE_MSC 控制的 MSC。
+ */
 void my_USB_init(uint8_t busid, uintptr_t reg_base)
 {
 #ifdef CONFIG_USBDEV_ADVANCE_DESC
@@ -702,12 +738,12 @@ void my_USB_init(uint8_t busid, uintptr_t reg_base)
     usbd_bos_desc_register(busid, &bos_desc);
     usbd_msosv2_desc_register(busid, &msosv2_desc);
 #endif
-    /*!< winusb */
+    /* WinUSB 接口与两个批量端点 */
     usbd_add_interface(busid, &winusb_intf);
     usbd_add_endpoint(busid, &winusb_out_ep1);
     usbd_add_endpoint(busid, &winusb_in_ep1);
 
-    /*!< cdc acm */
+    /* CDC ACM 的两个接口与两个批量端点 */
     usbd_add_interface(busid, usbd_cdc_acm_init_intf(busid, &intf1));
     usbd_add_interface(busid, usbd_cdc_acm_init_intf(busid, &intf2));
     usbd_add_endpoint(busid, &cdc_out_ep);
@@ -720,6 +756,7 @@ void my_USB_init(uint8_t busid, uintptr_t reg_base)
     usbd_initialize(busid, reg_base, usbd_event_handler);
 }
 
+/* 保留的 DTR 检测与测试发送代码，当前未启用 */
 // volatile uint8_t dtr_enable = 0;
 
 // void usbd_cdc_acm_set_dtr(uint8_t busid, uint8_t intf, bool dtr)
@@ -747,15 +784,12 @@ void my_USB_init(uint8_t busid, uintptr_t reg_base)
 //     }
 // }
 
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
- * param {uint8_t} class
- * param {uint8_t} data
-***************************************************************************************************/
+/**
+ * @brief 把 USB 线路编码字段限幅到 UART 驱动支持的取值。
+ * @param[in] class 1 表示数据位类别，2 表示停止位类别。
+ * @param[in] data 待校验的取值。
+ * @return 取值合法时原样返回，越界时返回该类别的默认值。
+ */
 uint8_t Detection_Effect(uint8_t class, uint8_t data)
 {
     // uart_word_length_t
@@ -784,6 +818,7 @@ uint8_t Detection_Effect(uint8_t class, uint8_t data)
     return 0x01;
 }
 
+/* 把 UART 数据位配置转换为 CDC 线路编码的数据位数值 */
 static uint8_t uart_word_length_to_cdc_data_bits(uart_word_length_t data_bits)
 {
     switch (data_bits) {
@@ -799,6 +834,7 @@ static uint8_t uart_word_length_to_cdc_data_bits(uart_word_length_t data_bits)
     }
 }
 
+/* 把 UART 停止位配置转换为 CDC 线路编码的停止位代码：0 为 1 位，1 为 1.5 位，2 为 2 位 */
 static uint8_t uart_stop_bits_to_cdc_char_format(uart_stop_bits_t stop_bits)
 {
     switch (stop_bits) {
@@ -812,6 +848,7 @@ static uint8_t uart_stop_bits_to_cdc_char_format(uart_stop_bits_t stop_bits)
     }
 }
 
+/* 把 UART 校验位配置转换为 CDC 线路编码的校验类型：0 无校验，1 奇校验，2 偶校验 */
 static uint8_t uart_parity_to_cdc_parity_type(uart_parity_t parity)
 {
     switch (parity) {
@@ -824,16 +861,13 @@ static uint8_t uart_parity_to_cdc_parity_type(uart_parity_t parity)
         return 0;
     }
 }
-/***************************************************************************************************
- * 功能描述:
- * 输入参数:
- * 输出参数:
- * 返 回 值:
- * 其它说明:
- * param {uint8_t} busid
- * param {uint8_t} intf
- * param {cdc_line_coding} *line_coding
- ***************************************************************************************************/
+/**
+ * @brief 把主机下发的线路编码参数应用到 UART 外设。
+ * @param[in] busid USB 总线编号，本实现不使用。
+ * @param[in] intf 接口编号，本实现不使用。
+ * @param[in] line_coding 主机下发的线路编码参数。
+ * @note 当前只应用波特率、数据位与停止位，校验位设置未生效。
+ */
 void usbd_cdc_acm_set_line_coding(uint8_t busid, uint8_t intf, struct cdc_line_coding *line_coding)
 {
     (void)busid;
@@ -845,16 +879,12 @@ void usbd_cdc_acm_set_line_coding(uint8_t busid, uint8_t intf, struct cdc_line_c
     // uart_set_parity(ECHO_UART_PORT_NUM, (uart_parity_t)line_coding->bParityType);
 }
 
-/***************************************************************************************************
- * 功能描述:
- * 输入参数:
- * 输出参数:
- * 返 回 值:
- * 其它说明:
- * param {uint8_t} busid
- * param {uint8_t} intf
- * param {cdc_line_coding} *line_coding
- ***************************************************************************************************/
+/**
+ * @brief 读取 UART 外设当前线路参数并转换为 USB 线路编码格式。
+ * @param[in] busid USB 总线编号，本实现不使用。
+ * @param[in] intf 接口编号，本实现不使用。
+ * @param[out] line_coding 接收线路编码参数的指针。
+ */
 void usbd_cdc_acm_get_line_coding(uint8_t busid, uint8_t intf, struct cdc_line_coding *line_coding)
 {
     uint32_t baud_rate = ECHO_UART_BAUD_RATE;
@@ -875,17 +905,14 @@ void usbd_cdc_acm_get_line_coding(uint8_t busid, uint8_t intf, struct cdc_line_c
     line_coding->bParityType = uart_parity_to_cdc_parity_type(parity);
 }
 
-/***************************************************************************************************
- * 功能描述:
- * 输入参数:
- * 输出参数:
- * 返 回 值:
- * 其它说明:
- ***************************************************************************************************/
+/**
+ * @brief 安装 UART 驱动、配置线路参数并绑定收发引脚。
+ * @note 接收与发送缓冲区均为 BUF_SIZE 的两倍；端口、波特率与引脚定义来自 myusb.h。
+ * @note 配置失败会由 ESP_ERROR_CHECK 直接中止，不会返回错误码。
+ */
 void Uart_init(void)
 {
-    /* Configure parameters of an UART driver,
-     * communication pins and install the driver */
+    /* 配置 UART 驱动参数、通信引脚并安装驱动 */
     uart_config_t uart_config = {
         .baud_rate = ECHO_UART_BAUD_RATE,
         .data_bits = UART_DATA_8_BITS,
@@ -907,18 +934,18 @@ void Uart_init(void)
     // Configure a temporary buffer for the incoming data
 }
 
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
-***************************************************************************************************/
+/**
+ * @brief USB 主任务：初始化 DAP、FAT、USB 设备与 UART，并循环双向转发 CDC 与 UART 数据。
+ * @param[in] arg FreeRTOS 任务参数，未使用。
+ * @note 收发缓冲申请失败时释放已申请内存并删除自身任务。
+ * @note 一轮循环没有任何数据搬运时延迟 1 个 tick，避免空转占满 CPU。
+ * @warning 创建 usb_AT 任务的返回值未检查，创建失败时 AT 命令通道会静默不可用。
+ */
 void usb_task(void *)
 {
     // esp_err_t ret;
-    uint8_t *Rxdata = (uint8_t *)malloc(BUF_SIZE);
-    uint8_t *Txdata = (uint8_t *)malloc(BUF_SIZE);
+    uint8_t *Rxdata = (uint8_t *)malloc(BUF_SIZE); /* UART 接收数据中转缓冲区 */
+    uint8_t *Txdata = (uint8_t *)malloc(BUF_SIZE); /* UART 发送数据中转缓冲区 */
     if ((Rxdata == NULL) || (Txdata == NULL)) {
         USB_LOG_RAW("usb_task malloc failed\r\n");
         if (Rxdata) {
@@ -933,19 +960,18 @@ void usb_task(void *)
     //  uint8_t u8data[65];
     int len = 0;
 
-    /**
-     * 需要注意的点是，init 函数第三个参数是内存池的大小（字节为单位）
-     * 也是ringbuffer的深度，必须为 2 的幂次！！！。
-     * 例如 4、16、32、64、128、1024、8192、65536等
+    /*
+     * 注意：第三个参数是环形缓冲区的内存池大小（字节），也就是缓冲区深度，
+     * 必须为 2 的幂，例如 4、16、32、64、128、1024、8192、65536。
      */
     chry_ringbuffer_init(&g_uarttx, uarttx_ringbuffer, CONFIG_UARTTX_RINGBUF_SIZE);
     swd_init();
     chry_dap_state_init();
-    // my_fatfs();
+    my_fatfs(); /* 挂载 storage 分区的 FAT 文件系统到 /spiflash */
 
-    create_readme_file_entry(); // 创建文件条目
-    init_fat_table();           // 初始化FAT表
-    prepare_file_content();     // 准备文件内容
+    create_readme_file_entry(); /* 创建虚拟磁盘根目录的文件条目 */
+    init_fat_table();           /* 初始化虚拟磁盘的 FAT 表 */
+    prepare_file_content();     /* 准备虚拟磁盘的文件内容 */
 
 
     my_USB_init(BUSID, ESP_USBD_BASE);
@@ -955,11 +981,12 @@ void usb_task(void *)
     {
         bool did_work = false;
 
-        /* Prioritize Host->UART forwarding path */
+        /* 优先搬运主机到 UART 方向的数据，避免环形缓冲区被填满 */
         while (drain_usb_to_uart(BUSID, Txdata, BUF_SIZE)) {
             did_work = true;
         }
 
+        /* 非阻塞读取 UART 数据，写入镜像日志后通过 CDC IN 端点回传主机 */
         len = uart_read_bytes(ECHO_UART_PORT_NUM, Rxdata, (BUF_SIZE - 1), 0);
         if (len > 0) {
             did_work = true;
@@ -972,6 +999,7 @@ void usb_task(void *)
             }
         }
 
+        /* 本轮无数据可处理时让出 CPU */
         if (!did_work) {
             vTaskDelay(1);
         }
