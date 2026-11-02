@@ -3,6 +3,13 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+
+/**
+ * @file ws2812.c
+ * @brief 通过 RMT 外设驱动板载 WS2812 状态灯。
+ * @details 自定义 RMT 编码器产生 WS2812 的 0/1 码和 50us 复位码；ws2812_task 从 xQueueLed
+ *          接收 HSV/RGB 消息刷新灯珠，队列空闲时按固定步进自动做彩虹渐变。
+ */
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
@@ -15,11 +22,11 @@
 
 #include "all_control.h"
 
-#define RMT_LED_STRIP_RESOLUTION_HZ 10000000 // 10MHz resolution, 1 tick = 0.1us (led strip needs a high resolution)
-#define RMT_LED_STRIP_GPIO_NUM      48
+#define RMT_LED_STRIP_RESOLUTION_HZ 10000000 /* RMT 分辨率 10MHz，1 tick = 0.1us，WS2812 需要高分辨率 */
+#define RMT_LED_STRIP_GPIO_NUM      48       /* WS2812 数据线所接的 GPIO 编号 */
 
-#define EXAMPLE_LED_NUMBERS         1
-#define EXAMPLE_CHASE_SPEED_MS      20
+#define EXAMPLE_LED_NUMBERS         1        /* 级联的 WS2812 灯珠数量 */
+#define EXAMPLE_CHASE_SPEED_MS      20       /* 主循环步进周期，单位毫秒 */
 static uint8_t led_strip_pixels[EXAMPLE_LED_NUMBERS * 3];
 static const char *TAG = "led_encoder";
 
@@ -27,14 +34,28 @@ static const char *TAG = "led_encoder";
 
 
 
+/**
+ * @brief WS2812 专用的 RMT 编码器：先输出 RGB 数据，再输出复位码。
+ */
 typedef struct {
-    rmt_encoder_t base;
-    rmt_encoder_t *bytes_encoder;
-    rmt_encoder_t *copy_encoder;
-    int state;
-    rmt_symbol_word_t reset_code;
+    rmt_encoder_t base;             /**< 编码器基类，必须是结构体的首成员，供容器转换使用 */
+    rmt_encoder_t *bytes_encoder;   /**< 把 RGB 字节编码成 RMT 符号的字节编码器 */
+    rmt_encoder_t *copy_encoder;    /**< 原样输出复位码的拷贝编码器 */
+    int state;                      /**< 编码状态机，0 表示发送 RGB 数据，1 表示发送复位码 */
+    rmt_symbol_word_t reset_code;   /**< 复位码符号，由两个电平 0 的半周期符号组成 */
 } rmt_led_strip_encoder_t;
 
+/**
+ * @brief 编码一次完整传输：RGB 数据加复位码。
+ * @param[in] encoder 编码器基类指针，内部通过 __containerof 还原为完整结构体。
+ * @param[in] channel 目标 RMT 发送通道。
+ * @param[in] primary_data 待发送的原始 RGB 字节缓冲区。
+ * @param[in] data_size 原始缓冲区长度，单位字节。
+ * @param[out] ret_state 本次编码状态，返回 RMT_ENCODING_COMPLETE 表示整帧发送完成。
+ * @return 本次写入 RMT 的符号数量。
+ * @note 状态 0 完成后直接落入状态 1，只有复位码也发送完成才置位 RMT_ENCODING_COMPLETE。
+ * @note RMT 内存已满时返回 RMT_ENCODING_MEM_FULL，调用方需要再次调用本函数续发剩余部分。
+ */
 static size_t rmt_encode_led_strip(rmt_encoder_t *encoder, rmt_channel_handle_t channel, const void *primary_data, size_t data_size, rmt_encode_state_t *ret_state)
 {
     rmt_led_strip_encoder_t *led_encoder = __containerof(encoder, rmt_led_strip_encoder_t, base);
@@ -89,6 +110,15 @@ static esp_err_t rmt_led_strip_encoder_reset(rmt_encoder_t *encoder)
     return ESP_OK;
 }
 
+/**
+ * @brief 创建 WS2812 灯带使用的 RMT 编码器。
+ * @param[in] config 编码器配置，主要提供 RMT 时钟分辨率，用于换算时序 tick 数。
+ * @param[out] ret_encoder 成功时写入编码器句柄，失败时不写入。
+ * @retval ESP_OK 编码器创建成功。
+ * @retval ESP_ERR_INVALID_ARG config 或 ret_encoder 为空，或 RMT 底层编码器参数非法。
+ * @retval ESP_ERR_NO_MEM 编码器结构体或内部编码器申请内存失败。
+ * @note 内部会额外创建字节编码器和拷贝编码器，任一创建失败时会释放已申请的资源。
+ */
 esp_err_t rmt_new_led_strip_encoder(const led_strip_encoder_config_t *config, rmt_encoder_handle_t *ret_encoder)
 {
     esp_err_t ret = ESP_OK;
@@ -142,10 +172,15 @@ err:
 }
 
 /**
- * @brief Simple helper function, converting HSV color space to RGB color space
- *
- * Wiki: https://en.wikipedia.org/wiki/HSL_and_HSV
- *HSV模型表示色相（Hue）、饱和度（Saturation）和亮度（Value）
+ * @brief 把 HSV 颜色空间换算成 RGB 颜色空间。
+ * @details 公式参考 https://en.wikipedia.org/wiki/HSL_and_HSV ；
+ *          HSV 模型分别表示色相（Hue）、饱和度（Saturation）和亮度（Value）。
+ * @param[in] h 色相，单位为度，内部按 360 取模。
+ * @param[in] s 饱和度，取值 0 到 100。
+ * @param[in] v 亮度，取值 0 到 100。
+ * @param[out] r 换算得到的红色分量，取值 0 到 255。
+ * @param[out] g 换算得到的绿色分量，取值 0 到 255。
+ * @param[out] b 换算得到的蓝色分量，取值 0 到 255。
  */
 void led_strip_hsv2rgb(uint32_t h, uint32_t s, uint32_t v, uint32_t *r, uint32_t *g, uint32_t *b)
 {
@@ -192,13 +227,12 @@ void led_strip_hsv2rgb(uint32_t h, uint32_t s, uint32_t v, uint32_t *r, uint32_t
         break;
     }
 }
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
-***************************************************************************************************/
+/**
+ * @brief WS2812 任务入口：初始化 RMT 通道与编码器，循环刷新灯珠颜色。
+ * @param[in] pvParameters 未使用的 FreeRTOS 任务参数。
+ * @note 队列无消息时按 20ms 步进累加色相，做自动彩虹渐变；收到消息时直接使用消息里的 HSV 或 RGB。
+ * @warning RMT 初始化与发送结果都用 ESP_ERROR_CHECK 处理，任一调用失败会直接中止程序。
+ */
 void ws2812_task(void *pvParameters)
 {
     // uint8_t red = 0;
@@ -244,7 +278,7 @@ void ws2812_task(void *pvParameters)
             }
             else
             {
-
+                /* 队列空闲时累加步进计数，约 10 分钟后才让色相自动递增，形成彩虹渐变。 */
                 if (++u32timecount > 10*60*1000 / EXAMPLE_CHASE_SPEED_MS)
                 {
                     u32timecount = 10*60*1000 / EXAMPLE_CHASE_SPEED_MS;
@@ -266,6 +300,7 @@ void ws2812_task(void *pvParameters)
                 }
 
                 // ESP_LOGI(TAG,"RGB: R=%d, G=%d, B=%d\n", red, green, blue);
+                /* WS2812 要求按 GRB 顺序发送，因此缓冲区依次填入 G、R、B。 */
                 led_strip_pixels[0] = tws2812Data.g;
                 led_strip_pixels[1] = tws2812Data.r;
                 led_strip_pixels[2] = tws2812Data.b;

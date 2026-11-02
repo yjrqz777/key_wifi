@@ -8,6 +8,13 @@
  * @YJRQZ777
 ***************************************************************************************************/
 
+/**
+ * @file key.c
+ * @brief 按键采集任务：把 GPIO 按键事件转换成 WS2812 控制消息。
+ * @details 基于 iot_button 组件注册按键回调，按键动作被映射成 HSV 颜色消息投递到 xQueueLed；
+ *          按键结束事件还会调用 wifi_button_handler() 触发 Wi-Fi 相关动作。
+ */
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -24,8 +31,8 @@
 
 static const char *TAG = "Key";
 
-#define BUTTON_IO_NUM  0
-#define BUTTON_ACTIVE_LEVEL   0
+#define BUTTON_IO_NUM  0                    /* 按键连接的 GPIO 编号 */
+#define BUTTON_ACTIVE_LEVEL   0             /* 按键有效电平，0 表示低电平有效 */
 
 
 extern void wifi_button_handler(void);
@@ -35,6 +42,13 @@ extern void wifi_button_handler(void);
 
 
 
+/**
+ * @brief 按键事件回调，把按键事件翻译成 WS2812 颜色消息。
+ * @param[in] arg 产生事件的按键句柄，用于查询事件类型、重复次数和长按时长。
+ * @param[in] data 注册时绑定的用户数据，多点按事件中表示点击次数。
+ * @note 回调运行在按键组件的任务上下文中，投递队列使用 portMAX_DELAY，队列满时会阻塞该任务。
+ * @note 所有事件共用一份静态消息缓存，只有置位 u8SendFg 的事件才会真正入队。
+ */
 static void button_event_cb(void *arg, void *data)
 {
     static uint8_t u8SendFg = 0;
@@ -83,6 +97,7 @@ static void button_event_cb(void *arg, void *data)
 
     if (u8SendFg == 1)
     {
+        /* 一次事件只投递一次，发送后立即清标志，避免重复入队。 */
         u8SendFg = 0;
         if (xQueueSend(xQueueLed, &tws2812Data, portMAX_DELAY) == pdTRUE) 
         {
@@ -92,6 +107,12 @@ static void button_event_cb(void *arg, void *data)
 
 }
 
+/**
+ * @brief 按键任务入口：创建 GPIO 按键设备并注册全部事件回调。
+ * @param[in] pvParameters 未使用的 FreeRTOS 任务参数。
+ * @note 回调注册完成后任务进入无限延时循环，函数不会返回。
+ * @note iot_button_new_gpio_device() 的返回值未做检查，设备创建失败时任务仍继续注册回调。
+ */
 void key_task(void *pvParameters)
 {
     const button_config_t btn_cfg = {0};

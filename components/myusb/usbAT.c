@@ -7,6 +7,15 @@
  * FilePath: /key_wifi/components/myusb/usbAT.c
  * @YJRQZ777
 ***************************************************************************************************/
+
+/**
+ * @file usbAT.c
+ * @brief 通过 USB CDC 串口接收 JSON 形式的 Wi-Fi 配置命令，保存并应用 AP 参数。
+ * @details 主机发送 "help" 可获取命令格式，发送 {"ap":{"ssid":"...","passwd":"..."}} 形式的
+ *          JSON 后，数据先在 CDC OUT 端点回调中暂存，再由 usb_AT 任务解析；
+ *          凭据写入 NVS 后重启 Wi-Fi 并切换到纯 AP 模式。
+ */
+
 #include "myusb.h"
 #include "cJSON.h"
 #include "esp_log.h"
@@ -33,15 +42,13 @@ static const char *TAG = "usbAT";
 tusbatdataDef tusbatdata = {0};
 /***************************************************************************************************/
 
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
- * param {char} *ssid
- * param {char} *password
-***************************************************************************************************/
+/**
+ * @brief 用给定凭据重新配置 Wi-Fi 并启动 AP。
+ * @param[in] ssid 新的 AP 名称，函数固定读取前 32 字节，调用方须保证该长度可读。
+ * @param[in] password 新的 AP 密码，函数固定读取前 64 字节，调用方须保证该长度可读。
+ * @note 结果以 "AP_OK" 或 "AP_FAIL" 字符串写入 CDC IN 端点，不通过返回值报告。
+ * @warning 函数会先停止 Wi-Fi 并把模式切换为 WIFI_MODE_AP，已连接的 STA 会立即断开且不再恢复。
+ */
 void wifi_ap_start(char *ssid, char *password)
 { 
     static uint8_t u8AP_OK[] = "AP_OK";
@@ -49,6 +56,7 @@ void wifi_ap_start(char *ssid, char *password)
 
     wifi_config_t ap_config;
     esp_wifi_get_config(WIFI_IF_AP, &ap_config); // 获取AP配置 (可选，如果你不需要保留AP配置则可不做)
+    /* 新的 AP 参数要先停止协议栈再重新启动才会生效 */
     esp_wifi_stop();
 
 
@@ -68,15 +76,14 @@ void wifi_ap_start(char *ssid, char *password)
         usbd_ep_start_write(BUSID, CDC_IN_EP, (uint8_t *)u8AP_FAIL, sizeof(u8AP_FAIL));
     }
 }
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
- * param {char*} ssid
- * param {char*} password
-***************************************************************************************************/
+/**
+ * @brief 把 AP 的 SSID 与密码写入 NVS 的 wifi_config 命名空间。
+ * @param[in] ssid 以空字符结尾的 SSID 字符串。
+ * @param[in] password 以空字符结尾的密码字符串。
+ * @retval true NVS 提交成功，凭据已持久化。
+ * @retval false NVS 提交失败，本次写入不会保留到下次上电。
+ * @note 打开命名空间与写入失败由 ESP_ERROR_CHECK 处理，会直接触发断言重启，不会返回 false。
+ */
 bool save_wifi_credentials(const char* ssid, const char* password)
 {
     nvs_handle_t handle;
@@ -89,13 +96,15 @@ bool save_wifi_credentials(const char* ssid, const char* password)
     nvs_close(handle);
     return commit_err == ESP_OK;
 }
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
-***************************************************************************************************/
+/**
+ * @brief 从 NVS 读回已保存的 AP 凭据。
+ * @param[out] ssid 接收 SSID 的缓冲区，长度至少 33 字节。
+ * @param[out] password 接收密码的缓冲区，长度至少 65 字节。
+ * @retval 1 读取成功，两个缓冲区都已写入以空字符结尾的字符串。
+ * @retval 0 命名空间或键缺失、长度越界、内容为空，此时不写调用方的缓冲区。
+ * @warning 复制长度固定为 33 字节和 65 字节，缓冲区更小会越界写。
+ * @note 读到的 SSID 与密码会以明文打印到日志。
+ */
 uint8_t read_wifi_credentials(char* ssid, char* password)
 {
     char u8ssid[33] = {0};        // SSID 最大 32 字符 + NULL 终止符
@@ -161,15 +170,15 @@ uint8_t read_wifi_credentials(char* ssid, char* password)
     return 1;
 }
 
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
- * param {uint32_t} nbytes
- * param {uint8_t} *read_buffer
-***************************************************************************************************/
+/**
+ * @brief 暂存 CDC 收到的 "help" 请求或 AP 配置 JSON，交给 usb_AT 任务处理。
+ * @param[in] nbytes 本次接收到的字节数。
+ * @param[in] read_buffer 接收数据的缓冲区，长度不小于 nbytes。
+ * @note 本函数由 CDC OUT 端点回调在 USB 中断上下文中调用，不能阻塞。
+ * @note 仅当数据以 {"ap" 开头且不少于 37 字节时才复制到 tusbatdata 并置 u8ok；
+ *       u8ok 已为 1 时新数据被丢弃，等待 usbATLoop 处理完上一条命令。
+ * @warning nbytes 不能超过 tusbatdata.u8read_buffer 的 128 字节，否则会越界写。
+ */
 void usb_CDC_ACM_Data_Dispose(uint32_t nbytes, uint8_t *read_buffer)
 { 
     static uint8_t u8help_buffer[] = "YJRQZDAP_HELP_JSON_MAX:64Byte:\n{\"ap\":{\"ssid\":\"test\",\"passwd\":\"12345678\"}}";
@@ -183,6 +192,7 @@ void usb_CDC_ACM_Data_Dispose(uint32_t nbytes, uint8_t *read_buffer)
     
     if (nbytes >= 37 && 0 == tusbatdata.u8ok)
     {
+        /* 逐字节核对约定的 JSON 前缀 {"ap"，避免把普通串口数据当成 AT 命令 */
         if (read_buffer[0] != '{')
         {
             return;
@@ -213,13 +223,13 @@ void usb_CDC_ACM_Data_Dispose(uint32_t nbytes, uint8_t *read_buffer)
 
 
 
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
-***************************************************************************************************/
+/**
+ * @brief 解析暂存的 AP 配置 JSON，保存凭据并重启 AP。
+ * @retval 1 本次调用结束，没有待处理数据时同样返回 1。
+ * @retval 0 JSON 解析失败或缺少合法的 ap 对象。
+ * @note 处理结束后清零 tusbatdata；ssid 或 passwd 缺失、类型错误时只打印提示，
+ *       既不保存凭据也不重启 AP。
+ */
 uint8_t usbATLoop()
 { 
     if (tusbatdata.u8ok == 1)
@@ -282,14 +292,13 @@ uint8_t usbATLoop()
 
 
 
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: "YJRQZDAP_HELP_JSONMAX:64Byte:\n{\"ap\":{\"ssid\":\"test\",\"passwd\":\"12345678\"}}";
- * param {void} *Pr
-***************************************************************************************************/
+/**
+ * @brief AT 命令处理任务入口，每 50ms 轮询一次是否有待处理命令。
+ * @param[in] Pr FreeRTOS 任务参数，未使用。
+ * @note 本任务不会退出，必须由 usb_task 创建后 CDC 命令才会被解析。
+ * @note 帮助回复内容为 u8help_buffer 中的固定字符串：YJRQZDAP_HELP_JSON_MAX:64Byte
+ *       加一行 {"ap":{"ssid":"test","passwd":"12345678"}}，其中数值仅作格式示例。
+ */
 void usb_AT(void *Pr)
 {
     while (true)

@@ -8,6 +8,14 @@
  * @YJRQZ777
 ***************************************************************************************************/
 
+/**
+ * @file virtualfat.c
+ * @brief 保留已停用的虚拟 FAT 磁盘实现，供查阅参考。
+ * @details 该文件原先在 RAM 中构造 FAT12 引导扇区、FAT 表和根目录，把内存镜像当作 MSC 磁盘。
+ *          现在 MSC 直接读写 storage 分区，容量与扇区回调已迁移到 myfile.c，本文件全部代码
+ *          用 #if 0 关闭，编译时只保留空翻译单元。
+ */
+
 #include "myusb.h"
 
 #include "freertos/FreeRTOS.h"
@@ -23,6 +31,8 @@
 
 #include "cJSON.h"
 
+/* 虚拟 FAT 已停用：MSC 改为直接挂载 storage 分区，回调实现在 myfile.c，整段用 #if 0 关闭 */
+#if 0
 #ifdef CONFIG_CHERRYDAP_USE_MSC
 
 
@@ -488,6 +498,7 @@ int usbd_msc_sector_write(uint8_t busid, uint8_t lun, uint32_t sector, uint8_t *
 }
 
 #endif
+#endif
 
 
 
@@ -496,6 +507,8 @@ int usbd_msc_sector_write(uint8_t busid, uint8_t lun, uint32_t sector, uint8_t *
 
 
 
+/* 迁移前的旧挂载实现，与新 myfile.c 中的 my_fatfs 重复，用 #if 0 关闭 */
+#if 0
 #ifdef CONFIG_partition_flash
 #define PARTITION_LABEL "storage"
 
@@ -532,6 +545,7 @@ void my_fatfs()
     }
     ESP_LOGI(TAG, "Opening file");
 }
+#endif
 #endif
 
 

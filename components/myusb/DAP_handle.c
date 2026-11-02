@@ -9,6 +9,7 @@
  *
  * @copyright Copyright (c) 2021
  *
+ * @note 本文件是导入的参考实现，当前未加入编译（CMakeLists.txt 中已注释），实际 DAP 处理在 myDAP.c。
  */
 
 #include <stdint.h>
@@ -34,46 +35,56 @@
 #include <lwip/netdb.h>
 
 #if ((USE_MDNS == 1) || (USE_OTA == 1))
-    #define DAP_BUFFER_NUM 10
+    #define DAP_BUFFER_NUM 10 /* 启用 mDNS 或 OTA 时收发的数据包个数上限，占用更少内存 */
 #else
-    #define DAP_BUFFER_NUM 20
+    #define DAP_BUFFER_NUM 20 /* 收发的数据包个数上限 */
 #endif
 
 #if (USE_WINUSB == 1)
+/**
+ * @brief WinUSB 模式下带长度字段的 DAP 数据包。
+ */
 typedef struct
 {
-    uint32_t length;
-    uint8_t buf[DAP_PACKET_SIZE];
+    uint32_t length;            /**< 有效数据字节数。 */
+    uint8_t buf[DAP_PACKET_SIZE]; /**< DAP 命令或响应内容。 */
 } DapPacket_t;
 #else
+/**
+ * @brief 非 WinUSB 模式下定长的 DAP 数据包。
+ */
 typedef struct
 {
-    uint8_t buf[DAP_PACKET_SIZE];
+    uint8_t buf[DAP_PACKET_SIZE]; /**< DAP 命令或响应内容。 */
 } DapPacket_t;
 #endif
 
-#define DAP_HANDLE_SIZE (sizeof(DapPacket_t))
+#define DAP_HANDLE_SIZE (sizeof(DapPacket_t)) /* 单个数据包占用的字节数，环形缓冲区按此对齐收发 */
 
 
-extern int kSock;
-extern TaskHandle_t kDAPTaskHandle;
+extern int kSock;                      /* USBIP 服务端套接字，由网络侧维护 */
+extern TaskHandle_t kDAPTaskHandle;    /* DAP 处理任务句柄，用于通知有新命令 */
 
-int kRestartDAPHandle = NO_SIGNAL;
+int kRestartDAPHandle = NO_SIGNAL;     /* DAP 句柄重启请求，取值见 reset_handle_t */
 
 
-static DapPacket_t DAPDataProcessed;
-static int dap_respond = 0;
+static DapPacket_t DAPDataProcessed;   /* 当前命令的响应包，处理完成后整包放入发送环形缓冲区 */
+static int dap_respond = 0;            /* 已生成但尚未被主机取走的响应个数，受 data_response_mux 保护 */
 
 // SWO Trace
-static uint8_t *swo_data_to_send = NULL;
-static uint32_t swo_data_num;
+static uint8_t *swo_data_to_send = NULL; /* SWO 待发送数据的指针 */
+static uint32_t swo_data_num;            /* SWO 待发送数据的字节数 */
 
 // DAP handle
-static RingbufHandle_t dap_dataIN_handle = NULL;
-static RingbufHandle_t dap_dataOUT_handle = NULL;
-static SemaphoreHandle_t data_response_mux = NULL;
+static RingbufHandle_t dap_dataIN_handle = NULL;  /* 主机下发命令的接收环形缓冲区 */
+static RingbufHandle_t dap_dataOUT_handle = NULL; /* 待回传响应的发送环形缓冲区 */
+static SemaphoreHandle_t data_response_mux = NULL; /* 保护环形缓冲区句柄与 dap_respond 的互斥量 */
 
 
+/**
+ * @brief 创建 DAP 收发环形缓冲区，已创建时不做处理。
+ * @note 在互斥量保护下创建，重建流程会先调用 free_dap_ringbuf() 释放旧缓冲区。
+ */
 void malloc_dap_ringbuf() {
     if (data_response_mux && xSemaphoreTake(data_response_mux, portMAX_DELAY) == pdTRUE)
     {
@@ -88,6 +99,10 @@ void malloc_dap_ringbuf() {
     }
 }
 
+/**
+ * @brief 释放 DAP 收发环形缓冲区并把句柄置空。
+ * @note 在互斥量保护下释放，句柄置空后 DAP_Thread 会跳过本次处理的命令。
+ */
 void free_dap_ringbuf() {
     if (data_response_mux && xSemaphoreTake(data_response_mux, portMAX_DELAY) == pdTRUE) {
         if (dap_dataIN_handle) {
@@ -170,12 +185,25 @@ void free_dap_ringbuf() {
 // SWO Data Queue Transfer
 //   buf:    pointer to buffer with data
 //   num:    number of bytes to transfer
+/**
+ * @brief 记录 SWO 待发送数据，供后续响应阶段取用。
+ * @param[in] buf 待发送数据缓冲区。
+ * @param[in] num 待发送字节数。
+ * @note 只保存指针，调用者必须保证缓冲区在发送完成前有效。
+ */
 void SWO_QueueTransfer(uint8_t *buf, uint32_t num)
 {
     swo_data_to_send = buf;
     swo_data_num = num;
 }
 
+/**
+ * @brief DAP 命令处理线程主体，从接收环形缓冲区取命令、处理并把响应放入发送环形缓冲区。
+ * @param[in] argument 任务参数，未使用。
+ * @note 创建环形缓冲区或互斥量失败时打印错误并删除任务自身。
+ * @note 收到 kRestartDAPHandle 请求时先释放环形缓冲区，请求为 RESET_HANDLE 时再重新创建。
+ * @warning DAP_ProcessCommand 的返回值只保留低 16 位作为响应长度，超长响应会被截断。
+ */
 void DAP_Thread(void *argument)
 {
     dap_dataIN_handle = xRingbufferCreate(DAP_HANDLE_SIZE * DAP_BUFFER_NUM, RINGBUF_TYPE_BYTEBUF);
@@ -312,6 +340,10 @@ void DAP_Thread(void *argument)
 //     return 0;
 // }
 
+/**
+ * @brief 处理主机取消传输（unlink）请求，丢弃可能滞留的旧响应。
+ * @note 最多丢弃一个满长度响应包，避免下一条 DIR_IN 请求拿到过期数据。
+ */
 void handle_dap_unlink()
 {
     // `USBIP_CMD_UNLINK` means calling `usb_unlink_urb()` or `usb_kill_urb()`.

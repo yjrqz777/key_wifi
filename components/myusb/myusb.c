@@ -260,11 +260,13 @@ void dap_in_callback(uint8_t busid, uint8_t ep, uint32_t nbytes);
 void dap_out_callback(uint8_t busid, uint8_t ep, uint32_t nbytes);
 
 
-/* USB 虚拟文件系统组件导出的接口，用于初始化 MSC 的虚拟 FAT 内容 */
+/* DAP 调试口状态初始化接口 */
 void chry_dap_state_init(void);
+#if 0 /* 虚拟 FAT 已停用，MSC 改为直接使用 storage 分区，下面三个接口不再调用 */
 void create_readme_file_entry(void);
 void init_fat_table(void);
 void prepare_file_content(void);
+#endif
 
 
 
@@ -969,9 +971,11 @@ void usb_task(void *)
     chry_dap_state_init();
     my_fatfs(); /* 挂载 storage 分区的 FAT 文件系统到 /spiflash */
 
-    create_readme_file_entry(); /* 创建虚拟磁盘根目录的文件条目 */
-    init_fat_table();           /* 初始化虚拟磁盘的 FAT 表 */
-    prepare_file_content();     /* 准备虚拟磁盘的文件内容 */
+#if 0 /* MSC 已改为直接访问 storage 分区，虚拟 FAT 的三步初始化不再需要 */
+    create_readme_file_entry();
+    init_fat_table();
+    prepare_file_content();
+#endif
 
 
     my_USB_init(BUSID, ESP_USBD_BASE);

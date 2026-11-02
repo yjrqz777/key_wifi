@@ -1,3 +1,10 @@
+/**
+ * @file webserver.c
+ * @brief 启动 ESP HTTP 服务器，注册网页、串口日志与 Wi-Fi 控制的 URI 处理器。
+ * @details 静态网页由组件 CMakeLists.txt 的 EMBED_FILES 嵌入固件；颜色控制通过
+ *          xQueueLed 交给 ws2812_task，Wi-Fi 模式切换通过 wifi_set_ap_sta_enabled()
+ *          完成，串口日志来自 myusb 侧的日志快照。
+ */
 #include <string.h>
 #include <stdlib.h>
 #include "freertos/FreeRTOS.h"
@@ -28,6 +35,7 @@ static const char *TAG = "WEB";
 ***************************************************************************************************/
 
 
+/* 嵌入网页的起止符号，由 CMakeLists.txt 的 EMBED_FILES 在链接阶段生成。 */
 extern const char root_start[] asm("_binary_root_html_start");
 extern const char root_end[] asm("_binary_root_html_end");
 extern const char serial_view_start[] asm("_binary_serial_view_html_start");
@@ -35,13 +43,13 @@ extern const char serial_view_end[] asm("_binary_serial_view_html_end");
 
 
 
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
-***************************************************************************************************/
+/**
+ * @brief 把未匹配的请求统一 302 重定向到根页面，充当 Captive Portal 入口。
+ * @param[in] req HTTP 请求句柄。
+ * @param[in] err 触发的 httpd 错误码，函数内部未使用。
+ * @return 总是返回 ESP_OK。
+ * @note iOS 需要响应体内容才会识别 Captive Portal，只设置 Location 头不够，因此额外发送了一段文本。
+ */
 // HTTP Error (404) Handler - Redirects all requests to the root page
 esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err)
 {
@@ -56,13 +64,10 @@ esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err)
     return ESP_OK;
 }
 
-/***************************************************************************************************
- * 功能描述: // HTTP GET Handler
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
-***************************************************************************************************/
+/**
+ * @brief 取出嵌入的 root.html，把其中的 %IP% 占位符替换成 AP 当前 IP 后返回。
+ * @note 每个请求都会把整份网页复制到堆上，内存不足时返回 HTTP 500 和 ESP_ERR_NO_MEM。
+ */
 static esp_err_t root_get_handler(httpd_req_t *req)
 {
     size_t html_len = root_end - root_start;
@@ -138,13 +143,12 @@ static esp_err_t serial_view_get_handler(httpd_req_t *req)
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     return httpd_resp_send(req, serial_view_start, html_len);
 }
-/***************************************************************************************************
- * 功能描述: // 控制LED的处理函数
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
-***************************************************************************************************/
+/**
+ * @brief 处理 /control 的 LED 控制请求，解析 state=on 或 state=off 参数。
+ * @param[in] req HTTP 请求句柄。
+ * @return 解析流程结束后总是返回 ESP_OK。
+ * @note 当前只打印日志，真正的 LED 驱动调用仍被注释；缺少查询串或参数时同样返回 200 空响应。
+ */
 esp_err_t led_control_handler(httpd_req_t *req) {
     char*  buf;
     size_t buf_len;
@@ -185,6 +189,15 @@ static tws2812Def tws2812Data={0};
 
 
 // 控制请求处理
+/**
+ * @brief 处理 /rgbcontrol 的 POST 请求，解析 JSON 里的 r、g、b 并投递给 WS2812 任务。
+ * @param[in] req HTTP 请求句柄，请求体形如 {"r":0,"g":0,"b":0}。
+ * @retval ESP_OK 颜色消息已写入 xQueueLed。
+ * @retval ESP_FAIL JSON 解析失败，已向客户端返回 400。
+ * @note 请求体最多接收 127 字节，超出部分不读取。
+ * @note 队列发送只等待 2 个 tick，队列满时本次颜色更新会被丢弃。
+ * @warning 未校验 r、g、b 字段是否存在，缺字段时会对 cJSON 返回的空指针取值。
+ */
 esp_err_t rgb_control_handler(httpd_req_t *req) {
     char content[128];
     int received = 0;
@@ -235,6 +248,7 @@ esp_err_t rgb_control_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+/* /serial 返回 myusb 侧 4096 字节串口日志的快照，每次请求单独申请缓冲。 */
 static esp_err_t serial_get_handler(httpd_req_t *req)
 {
     char *serial_buf = (char *)malloc(4096);
@@ -315,13 +329,7 @@ static esp_err_t wifi_control_get_handler(httpd_req_t *req)
 
 
 
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
-***************************************************************************************************/
+/* URI 路由表，start_webserver() 启动成功后按顺序逐项注册。 */
 static const httpd_uri_t root = {
     .uri = "/",
     .method = HTTP_GET,
@@ -371,13 +379,13 @@ httpd_uri_t wifi_control = {
 };
 
 
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
-***************************************************************************************************/
+/**
+ * @brief 启动 HTTP 服务器并注册全部 URI 与 404 重定向处理器。
+ * @retval 服务器句柄 httpd_start() 成功，返回可用的 httpd_handle_t。
+ * @retval NULL httpd_start() 失败，此时所有 URI 都未注册。
+ * @note 服务器最多保留 7 个并发连接并启用 LRU 淘汰，任务栈按 8192 字节配置。
+ * @note 调用前需已完成网络接口初始化，否则根页面会退化为 0.0.0.0，Wi-Fi 状态接口返回 500。
+ */
 httpd_handle_t start_webserver(void)
 {
     httpd_handle_t server = NULL;
@@ -399,6 +407,7 @@ httpd_handle_t start_webserver(void)
         httpd_register_uri_handler(server, &serial_view);
         httpd_register_uri_handler(server, &wifi_status);
         httpd_register_uri_handler(server, &wifi_control);
+        /* 未匹配路径统一走 302 重定向，便于手机自动弹出认证页面。 */
         httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, http_404_error_handler);
     }
     return server;

@@ -1,6 +1,8 @@
 /**
  * @file all_control.c
  * @brief 创建共享控制队列并启动设备功能任务。
+ * @details 汇总 WS2812、USB、CMSIS-DAP、按键和 Wi-Fi 五个功能任务的启动入口，
+ *          任务之间通过 xQueueLed 队列传递 LED 更新消息。
  */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"

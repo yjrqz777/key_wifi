@@ -7,6 +7,13 @@
  * FilePath: /key_wifi/components/all_control/src/mywifi.c
  * @YJRQZ777
 ***************************************************************************************************/
+/**
+ * @file mywifi.c
+ * @brief 初始化 SoftAP 网络，维护 AP/STA 模式状态并把 Wi-Fi 事件映射到状态灯。
+ * @details 开机固定以 AP 模式启动，STA 配置只在启用 STA 时下发；网页端通过
+ *          wifi_set_ap_sta_enabled() 切换模式，事件回调把连接状态转成 WS2812
+ *          颜色消息投递到 xQueueLed。
+ */
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -41,12 +48,12 @@
    If you'd rather not, just change the below entries to strings with
    the config you want - ie #define AP_WIFI_SSID "mywifissid"
 */
-#define AP_ESP_WIFI_SSID      "dtest"
-#define AP_ESP_WIFI_PASS      "12345678"
-#define AP_ESP_WIFI_CHANNEL   3
-#define AP_MAX_STA_CONN       10
+#define AP_ESP_WIFI_SSID      "dtest"      /* 默认热点名称 */
+#define AP_ESP_WIFI_PASS      "12345678"   /* 默认热点密码，长度为 8 到 63 个字符 */
+#define AP_ESP_WIFI_CHANNEL   3            /* 热点固定使用的信道 */
+#define AP_MAX_STA_CONN       10           /* 热点允许接入的最大 STA 数 */
 
-#define TIMEOFF 3
+#define TIMEOFF 3   /* STA 超时时间的分钟数，由 StaTimeout() 按秒累计 */
 
 
 static const char *TAG = "wifi STA-AP";
@@ -66,6 +73,7 @@ static struct
     uint8_t u8StaStatus;  // 0:STA模式不激活,1:STA模式激活
 }twifiData;
 
+/* STA 模式使用的默认上级热点配置，仅在启用 STA 时写入 WIFI_IF_STA。 */
 static wifi_config_t g_sta_wifi_config = {
     .sta = {
         .ssid = "STA_WIFI",
@@ -79,6 +87,14 @@ static wifi_config_t g_sta_wifi_config = {
 
 httpd_handle_t start_webserver(void);
 
+/**
+ * @brief 校验 AP 的 SSID 与密码长度是否符合 Wi-Fi 驱动要求。
+ * @param[in] ssid 待校验的热点名称。
+ * @param[in] password 待校验的热点密码，允许为空表示开放热点。
+ * @retval true 长度合法。
+ * @retval false SSID 为空或超过 32 个字符，或密码长度不为 0 且不在 8 到 63 个字符之间。
+ * @note 读取上限固定为 33 与 65 字节，调用方需保证缓冲区至少有这么长或提前以 NUL 结尾。
+ */
 static bool ap_credentials_valid(const char *ssid, const char *password)
 {
     size_t ssid_len = strnlen(ssid, 33);
@@ -93,6 +109,10 @@ static bool ap_credentials_valid(const char *ssid, const char *password)
     return true;
 }
 
+/*
+ * 将 AP/STA 使能组合映射成 esp_wifi 工作模式。
+ * 两者均为 false 时返回 WIFI_MODE_STA，调用方已经在入口处拦截该组合。
+ */
 static wifi_mode_t wifi_mode_from_enable(bool ap_enable, bool sta_enable)
 {
     if (ap_enable && sta_enable) {
@@ -104,12 +124,22 @@ static wifi_mode_t wifi_mode_from_enable(bool ap_enable, bool sta_enable)
     return WIFI_MODE_STA;
 }
 
+/**
+ * @brief 查询当前 Wi-Fi 工作模式，换算成 AP 与 STA 的使能状态。
+ * @param[out] ap_enable 输出 AP 是否启用。
+ * @param[out] sta_enable 输出 STA 是否启用。
+ * @retval ESP_OK 查询成功，两个输出参数已写入。
+ * @retval ESP_ERR_INVALID_ARG 输出参数为空指针。
+ * @retval 其他错误码 直接透传 esp_wifi_get_mode() 的返回值。
+ * @note 结果来自驱动的实时工作模式，不是本文件缓存的 twifiData。
+ */
 esp_err_t wifi_get_ap_sta_enabled(bool *ap_enable, bool *sta_enable)
 {
     if ((ap_enable == NULL) || (sta_enable == NULL)) {
         return ESP_ERR_INVALID_ARG;
     }
 
+    /* 由工作模式反推两种角色是否启用。 */
     wifi_mode_t mode;
     esp_err_t err = esp_wifi_get_mode(&mode);
     if (err != ESP_OK) {
@@ -121,8 +151,19 @@ esp_err_t wifi_get_ap_sta_enabled(bool *ap_enable, bool *sta_enable)
     return ESP_OK;
 }
 
+/**
+ * @brief 切换 AP 与 STA 的启用组合，必要时重启 Wi-Fi 并重新连接 STA。
+ * @param[in] ap_enable true 启用 AP。
+ * @param[in] sta_enable true 启用 STA。
+ * @retval ESP_OK 模式已按要求生效。
+ * @retval ESP_ERR_INVALID_ARG AP 与 STA 被同时关闭。
+ * @retval 其他错误码 来自 esp_wifi_get_mode()、esp_wifi_set_mode()、esp_wifi_set_config() 或 esp_wifi_start()。
+ * @note 模式未变化且启用 STA 时，只补发一次 esp_wifi_connect()，不重启 Wi-Fi。
+ * @warning 切换模式会先调用 esp_wifi_stop()，已建立的 AP 与 STA 连接都会断开并重新发起。
+ */
 esp_err_t wifi_set_ap_sta_enabled(bool ap_enable, bool sta_enable)
 {
+    /* 两种模式同时关闭会让设备彻底失联，直接拒绝。 */
     if (!ap_enable && !sta_enable) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -134,6 +175,7 @@ esp_err_t wifi_set_ap_sta_enabled(bool ap_enable, bool sta_enable)
         return err;
     }
 
+    /* 模式未变化时无需重启 Wi-Fi，仅在需要 STA 时补一次连接。 */
     if (current_mode == target_mode) {
         if (sta_enable) {
             esp_wifi_connect();
@@ -141,6 +183,7 @@ esp_err_t wifi_set_ap_sta_enabled(bool ap_enable, bool sta_enable)
         return ESP_OK;
     }
 
+    /* 允许 Wi-Fi 已经处于停止状态。 */
     err = esp_wifi_stop();
     if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_STOPPED) {
         return err;
@@ -150,6 +193,7 @@ esp_err_t wifi_set_ap_sta_enabled(bool ap_enable, bool sta_enable)
     if (err != ESP_OK) {
         return err;
     }
+    /* 启用 STA 时下发默认上级热点配置，随后重新启动并连接。 */
     if (sta_enable) {
         err = esp_wifi_set_config(WIFI_IF_STA, &g_sta_wifi_config);
         if (err != ESP_OK) {
@@ -173,13 +217,11 @@ esp_err_t wifi_set_ap_sta_enabled(bool ap_enable, bool sta_enable)
 
 
 
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
-***************************************************************************************************/
+/**
+ * @brief 按键触发时启动或停止 AP。
+ * @note 判定依据是缓存的 twifiData.u8ApStatus，不是驱动的实时状态。
+ * @note 在 APSTA 模式下 esp_wifi_stop() 会同时断开 STA，影响整条 Wi-Fi 链路。
+ */
 void wifi_button_handler(void)
 {
     if (twifiData.u8ApStatus == 0)
@@ -191,13 +233,11 @@ void wifi_button_handler(void)
         esp_wifi_stop();
     }
 }
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
-***************************************************************************************************/
+/**
+ * @brief Wi-Fi 与 IP 事件回调：刷新模式状态，并把事件映射成 WS2812 颜色消息。
+ * @note 各事件分支只填写颜色，函数末尾统一按 u8SendFg 投递一次队列。
+ * @note 投递使用 portMAX_DELAY，队列满时会阻塞事件任务。
+ */
 static void wifi_event_handler(void* arg, esp_event_base_t event_base,
                                     int32_t event_id, void* event_data)
 {
@@ -292,6 +332,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         // s_retry_num = 0;
         // xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
     }
+    /* 事件分支处理完后统一入队，避免同一事件重复发送颜色。 */
     if (u8SendFg == 1)
     {
         u8SendFg = 0;  // 清除发送标志
@@ -301,13 +342,11 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         }
     }
 }
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
-***************************************************************************************************/
+/**
+ * @brief 初始化 lwIP、默认事件循环与 Wi-Fi 驱动，并以 SoftAP 模式启动热点。
+ * @note 只设置 AP 配置；STA 配置在 wifi_set_ap_sta_enabled() 启用 STA 时才下发。
+ * @note 内部大量使用 ESP_ERROR_CHECK，任一初始化失败会直接 abort 整机。
+ */
 void wifi_sta_ap(void)
 {
     char u8ssid[33] = {0};        // SSID 最大 32 字符 + NULL 终止符
@@ -359,6 +398,7 @@ void wifi_sta_ap(void)
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     esp_netif_create_default_wifi_ap();
+    /* AP 与 STA 两个 netif 都创建，运行时切换模式可直接复用。 */
     esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -370,6 +410,7 @@ void wifi_sta_ap(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &AP_wifi_config));
 
 
+    /* WIFI_EVENT 订阅全部事件，IP_EVENT 只订阅 STA 获取到 IP。 */
     esp_event_handler_instance_t instance_got_ip;
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
                                                         ESP_EVENT_ANY_ID,
@@ -383,6 +424,7 @@ void wifi_sta_ap(void)
                                                         &instance_got_ip));
 
 
+    /* 启动后由事件回调置位 AP 状态并推送状态灯颜色。 */
     ESP_ERROR_CHECK(esp_wifi_start());
 
     esp_netif_ip_info_t ip_info;
@@ -397,13 +439,12 @@ void wifi_sta_ap(void)
 
 }
 
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
-***************************************************************************************************/
+/**
+ * @brief STA 超时定时器回调：累计约 3 分钟后强制切回 AP 模式。
+ * @note 回调按 1 秒周期调用，函数内部用静态计数器折算分钟，计时到点后停止定时器。
+ * @note 定时器创建代码当前被注释、xStaTimeoutTimer 为 NULL，现有流程不会触发本回调。
+ * @warning 切回 AP 前会调用 esp_wifi_stop()，正在使用的 STA 连接会被强制断开。
+ */
 void StaTimeout()
 {
     static uint16_t u16TimeCount = 0;
@@ -436,13 +477,11 @@ void StaTimeout()
 
 }
 
-/***************************************************************************************************
- * 功能描述: 
- * 输入参数: 
- * 输出参数: 
- * 返 回 值: 
- * 其它说明: 
-***************************************************************************************************/
+/**
+ * @brief Wi-Fi 控制任务入口：拉起 SoftAP 与 HTTP 服务器后进入常驻循环。
+ * @param[in] pvParameters FreeRTOS 任务参数，当前未使用。
+ * @note 超时定时器句柄在此被置为 NULL，StaTimeout() 在现有流程中不会被调度。
+ */
 void wifi_task(void *pvParameters)
 {
 
@@ -467,6 +506,7 @@ void wifi_task(void *pvParameters)
     // }
     // xTaskCreate(vTimerCallback, "vTimerCallback", 1024*4, NULL, 5, NULL);
     // ESP_LOGI(TAG, "ESP_WIFI_MODE_AP");
+    /* 先按 AP 模式拉起网络，再启动 HTTP 服务器对外提供控制页面。 */
     wifi_sta_ap();
     start_webserver();
 
