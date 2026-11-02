@@ -2378,6 +2378,12 @@ CONFIG_CU_DIAGNOSTICS_COLOR_ALWAYS=y
 # CONFIG_CU_GCC_LTO_ENABLE is not set
 # CONFIG_CU_GCC_STRING_1BYTE_ALIGN is not set
 # end of CMake Utilities
+
+#
+# X/YMODEM
+#
+# CONFIG_XYMODEM_ENABLE_DEBUG_LOG is not set
+# end of X/YMODEM
 # end of Component config
 
 # CONFIG_IDF_EXPERIMENTAL_FEATURES is not set
