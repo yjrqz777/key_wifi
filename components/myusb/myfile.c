@@ -31,6 +31,7 @@
 
 #include "usb_util.h"
 #include "usbd_msc.h"
+#include "devmode.h"
 
 #define TAG "FATFS" /* 日志标签 */
 
@@ -83,20 +84,19 @@ static esp_err_t my_fatfs_reserve_readme(void)
 }
 
 /**
- * @brief 将 storage 分区以 wear levelling 方式挂载为 FAT 文件系统到 /spiflash。
- * @retval ESP_OK 挂载成功，并已完成 README 文件的预留。
- * @retval 其他 挂载失败，返回底层挂载接口的错误码。
- * @note 挂载失败时会把文件内静态句柄复位为 WL_INVALID_HANDLE，避免后续继续使用失效句柄。
- * @note 成功与失败结果都通过 ESP_LOGE 输出，串口上以 E 级别呈现。
+ * @brief 按指定策略把 storage 分区挂载为 FAT 文件系统。
+ * @param[in] format_if_mount_failed 挂载失败时是否格式化分区。
+ * @retval ESP_OK 挂载成功。
+ * @retval 其他 挂载失败的错误码。
  */
-esp_err_t my_fatfs(void)
+static esp_err_t fatfs_mount(bool format_if_mount_failed)
 {
     ESP_LOGI(TAG, "Mounting FAT filesystem");
 
-    /* 最多同时打开 4 个文件；挂载失败时格式化分区；分配单元大小与 wear levelling 扇区一致 */
+    /* 最多同时打开 4 个文件；分配单元大小与 wear levelling 扇区一致 */
     const esp_vfs_fat_mount_config_t mount_config = {
         .max_files = 4,
-        .format_if_mount_failed = true,
+        .format_if_mount_failed = format_if_mount_failed,
         .allocation_unit_size = CONFIG_WL_SECTOR_SIZE,
     };
 
@@ -111,9 +111,43 @@ esp_err_t my_fatfs(void)
     }
 
     ESP_LOGE(TAG, "FATFS mounted on %s", FATFS_MOUNT_POINT);
+    return ESP_OK;
+}
+
+/**
+ * @brief 将 storage 分区以 wear levelling 方式挂载为 FAT 文件系统到 /spiflash。
+ * @retval ESP_OK 挂载成功，并已完成 README 文件的预留。
+ * @retval 其他 挂载失败，返回底层挂载接口的错误码。
+ * @note 首次挂载允许在失败时格式化分区。
+ */
+esp_err_t my_fatfs(void)
+{
+    esp_err_t err = fatfs_mount(true);
+    if (err != ESP_OK) {
+        return err;
+    }
 
     my_fatfs_reserve_readme();
     return ESP_OK;
+}
+
+/**
+ * @brief 重新挂载 storage 分区，用于模式切换后刷新设备侧的目录缓存。
+ * @retval ESP_OK 重新挂载成功。
+ * @retval 其他 卸载或挂载失败的错误码。
+ * @note 与首次挂载不同，这里失败时不会格式化分区，避免清掉主机写入的文件。
+ */
+esp_err_t my_fatfs_remount(void)
+{
+    if (s_wl_handle != WL_INVALID_HANDLE) {
+        esp_err_t err = esp_vfs_fat_spiflash_unmount_rw_wl(FATFS_MOUNT_POINT, s_wl_handle);
+        s_wl_handle = WL_INVALID_HANDLE;
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Unmount FATFS from %s failed (%s)", FATFS_MOUNT_POINT, esp_err_to_name(err));
+        }
+    }
+
+    return fatfs_mount(false);
 }
 
 /**
@@ -131,6 +165,11 @@ void usbd_msc_get_cap(uint8_t busid, uint8_t lun, uint32_t *block_num, uint32_t 
 
     *block_size = CONFIG_WL_SECTOR_SIZE;
     *block_num = 0;
+
+    /* 传输模式下 MSC 不访问 spiflash，避免与设备侧的 XMODEM 写文件冲突 */
+    if (devmode_is_transfer()) {
+        return;
+    }
 
     if (s_wl_handle == WL_INVALID_HANDLE) {
         ESP_LOGE(TAG, "MSC capacity unavailable, FATFS is not mounted");
@@ -155,6 +194,11 @@ int usbd_msc_sector_read(uint8_t busid, uint8_t lun, uint32_t sector, uint8_t *b
 {
     (void)busid;
     (void)lun;
+
+    /* 传输模式下拒绝主机访问，spiflash 由设备侧的 XMODEM 接收独占 */
+    if (devmode_is_transfer()) {
+        return -1;
+    }
 
     if (s_wl_handle == WL_INVALID_HANDLE) {
         return -1;
@@ -184,6 +228,11 @@ int usbd_msc_sector_write(uint8_t busid, uint8_t lun, uint32_t sector, uint8_t *
 {
     (void)busid;
     (void)lun;
+
+    /* 传输模式下拒绝主机写入，避免与设备侧的 XMODEM 写文件冲突 */
+    if (devmode_is_transfer()) {
+        return -1;
+    }
 
     if (s_wl_handle == WL_INVALID_HANDLE) {
         return -1;

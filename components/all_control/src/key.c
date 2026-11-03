@@ -26,11 +26,14 @@
 #include "button_interface.h"
 #include "iot_button.h"
 
+#include "filetransfer.h"
 #include "wifi.h"
 #include "ws2812.h"
 
 
 static const char *TAG = "Key";
+
+#define MODE_SWITCH_LONG_PRESS_MS 5000      /* 长按切换查看/传输模式的判定时长，单位毫秒 */
 
 #define BUTTON_IO_NUM  0                    /* 按键连接的 GPIO 编号 */
 #define BUTTON_ACTIVE_LEVEL   0             /* 按键有效电平，0 表示低电平有效 */
@@ -51,8 +54,13 @@ static void button_event_cb(void *arg, void *data)
 {
     static uint8_t u8SendFg = 0;
     static tws2812Def tws2812Data = {0};
+    static bool bModeSwitched = false; /* 本轮长按是否已经切换过查看/传输模式 */
     button_event_t event = iot_button_get_event(arg);
     // ESP_LOGI(TAG, "%s", iot_button_get_event_str(event));
+
+    if (BUTTON_PRESS_DOWN == event) {
+        bModeSwitched = false;
+    }
 
     if (BUTTON_PRESS_REPEAT == event || BUTTON_PRESS_REPEAT_DONE == event) {
         ESP_LOGI(TAG, "\tREPEAT[%d]", iot_button_get_repeat(arg));
@@ -70,7 +78,14 @@ static void button_event_cb(void *arg, void *data)
     if (BUTTON_LONG_PRESS_HOLD == event || BUTTON_LONG_PRESS_UP == event) 
     {
         /*长按 Rainbow*/
-        ESP_LOGI(TAG, "\tTICKS[%"PRIu32"]", iot_button_get_ticks_time(arg));
+        uint32_t u32Ticks = iot_button_get_ticks_time(arg);
+        ESP_LOGI(TAG, "\tTICKS[%"PRIu32"]", u32Ticks);
+        /* 长按满 5 秒切换查看/传输模式，一轮长按只切换一次 */
+        if (!bModeSwitched && u32Ticks >= MODE_SWITCH_LONG_PRESS_MS) {
+            bModeSwitched = true;
+            ESP_LOGW(TAG, "长按 %d 秒，切换查看/传输模式", MODE_SWITCH_LONG_PRESS_MS / 1000);
+            filetransfer_toggle_mode();
+        }
         tws2812Data.h += 1;
         tws2812Data.s = 100;
         tws2812Data.v = 5;
@@ -85,6 +100,7 @@ static void button_event_cb(void *arg, void *data)
     {
         /**/
         ESP_LOGI(TAG, "BUTTON_PRESS_END");
+        bModeSwitched = false;
         // tws2812Data.h = 299;
         // tws2812Data.s = 100;
         // tws2812Data.v = 0;

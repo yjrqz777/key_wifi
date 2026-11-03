@@ -12,6 +12,7 @@
 #include "all_control.h"
 #include "webserver.h"
 #include "easy_at.h"
+#include "filetransfer.h"
 #include "myusb.h"
 #include "wifi.h"
 #include "ws2812.h"
@@ -38,6 +39,9 @@ void all_control_main(int argc,int *argv)
 {
     /* LED 队列必须先于任何发送方就绪。 */
     ESP_ERROR_CHECK(ws2812_init());
+
+    /* 传输组件：接管 CDC 数据，等待按键切到传输模式后接收 XMODEM 文件。 */
+    ESP_ERROR_CHECK(filetransfer_init());
 
     /* 依次启动 LED、USB、CMSIS-DAP、按键和 AT 命令任务。 */
     xTaskCreate(ws2812_task,    "ws2812_task",  1024*3, NULL, 5, NULL);

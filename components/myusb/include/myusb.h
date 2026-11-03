@@ -12,6 +12,7 @@
 
 
 #include <stdbool.h>
+#include <stdint.h>
 
 
 #define ECHO_TEST_TXD (4)               /* CDC 到 UART 桥接使用的发送引脚 GPIO4 */
@@ -106,4 +107,27 @@ void dap_task(void *);
 void usb_CDC_ACM_Data_Dispose(uint32_t nbytes, uint8_t *read_buffer);
 void usb_serial_log_append(const uint8_t *data, size_t len);
 size_t usb_serial_log_snapshot(char *out, size_t out_size);
+
+/**
+ * @brief 传输模式下的 CDC 接收回调原型。
+ * @param[in] data 收到的数据首地址。
+ * @param[in] len 数据长度，单位字节。
+ */
+typedef void (*usb_cdc_transfer_hook_t)(const uint8_t *data, uint32_t len);
+
+/**
+ * @brief 注册传输模式下的 CDC 接收回调。
+ * @param[in] hook 回调函数，传 NULL 表示取消注册。
+ * @note 只有在传输模式下注册的回调才会被调用，普通模式仍走 UART 转发与 AT 解析。
+ */
+void usb_cdc_set_transfer_hook(usb_cdc_transfer_hook_t hook);
+
+/**
+ * @brief 从 CDC IN 端点发送一段数据，内部处理端点忙标志。
+ * @param[in] data 待发送数据。
+ * @param[in] len 数据长度，单位字节。
+ * @retval 0 发送完成。
+ * @retval -1 端点忙超时或写端点失败。
+ */
+int usb_cdc_write(const uint8_t *data, uint32_t len);
 #endif // MYUSB_H

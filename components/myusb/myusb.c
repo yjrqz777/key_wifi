@@ -49,6 +49,7 @@
 
 #include "myusb.h"
 #include "myfile.h"
+#include "devmode.h"
 /*
  * Copyright (c) 2024, sakumisu
  *
@@ -106,6 +107,72 @@ USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t cdc_read_buffer[WINUSB_EP_MPS]; /
 // USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t write_buffer[2048];
 
 volatile bool ep_tx_busy_flag = false; /* CDC IN 端点发送忙标志，避免发送完成前重入写端点 */
+
+/* 传输模式下 CDC 数据的接收回调，由 filetransfer 组件通过 usb_cdc_set_transfer_hook() 注册 */
+static usb_cdc_transfer_hook_t s_cdc_transfer_hook = NULL;
+
+/* CDC IN 应答暂存区：DWC2 端点要求发送缓冲区 4 字节对齐，协议层常直接传 1 字节栈变量 */
+static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t cdc_tx_buffer[WINUSB_EP_MPS];
+
+void usb_cdc_set_transfer_hook(usb_cdc_transfer_hook_t hook)
+{
+    s_cdc_transfer_hook = hook;
+}
+
+/**
+ * @brief 从 CDC IN 端点发送一段数据，内部等待端点空闲。
+ * @param[in] data 待发送数据。
+ * @param[in] len 数据长度，单位字节，超过一个最大包时自动分段发送。
+ * @retval 0 发送完成。
+ * @retval -1 参数非法、端点忙超时或写端点失败。
+ * @note 数据先复制到对齐暂存区，避免调用方缓冲区未按 4 字节对齐导致端点直接返回失败。
+ * @note 每段的等待上限为 1 秒，避免主机停读时把调用任务永久挂住。
+ */
+int usb_cdc_write(const uint8_t *data, uint32_t len)
+{
+    if (data == NULL || len == 0) {
+        return -1;
+    }
+
+    uint32_t sent = 0;
+    while (sent < len) {
+        uint32_t chunk = len - sent;
+        if (chunk > sizeof(cdc_tx_buffer)) {
+            chunk = sizeof(cdc_tx_buffer);
+        }
+        memcpy(cdc_tx_buffer, data + sent, chunk);
+
+        TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(1000);
+        while (ep_tx_busy_flag) {
+            if ((int32_t)(xTaskGetTickCount() - deadline) >= 0) {
+                ESP_LOGE(TAG, "CDC IN 端点忙超时");
+                return -1;
+            }
+            vTaskDelay(1);
+        }
+
+        ep_tx_busy_flag = true;
+        int ret = usbd_ep_start_write(BUSID, CDC_IN_EP, cdc_tx_buffer, chunk);
+        if (ret < 0) {
+            ESP_LOGE(TAG, "CDC IN 启动发送失败，错误码 %d", ret);
+            ep_tx_busy_flag = false;
+            return -1;
+        }
+
+        deadline = xTaskGetTickCount() + pdMS_TO_TICKS(1000);
+        while (ep_tx_busy_flag) {
+            if ((int32_t)(xTaskGetTickCount() - deadline) >= 0) {
+                ESP_LOGE(TAG, "CDC IN 发送超时");
+                return -1;
+            }
+            vTaskDelay(1);
+        }
+
+        sent += chunk;
+    }
+
+    return 0;
+}
 
 #define SERIAL_LOG_BUF_SIZE 4096 /* CDC 串口镜像日志容量，供网页 /serial 读取 */
 static char s_serial_log[SERIAL_LOG_BUF_SIZE];                       /* 串口镜像日志正文，始终以 '\0' 结尾 */
@@ -647,6 +714,15 @@ void usbd_cdc_acm_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
         return;
     }
 
+    /* 传输模式下 CDC 独占给 XMODEM：直接交给接收方，不转发 UART，也不做 AT 解析 */
+    if (devmode_is_transfer()) {
+        if (s_cdc_transfer_hook != NULL) {
+            s_cdc_transfer_hook(cdc_read_buffer, nbytes);
+        }
+        usbd_ep_start_read(busid, CDC_OUT_EP, cdc_read_buffer, WINUSB_EP_MPS);
+        return;
+    }
+
     /* 主机到设备方向的数据监视：调试打印二进制收发内容 */
     USB_LOG_RAW("CDC OUT len:%lu data(ascii): ", (unsigned long)nbytes);
     usb_log_ascii(cdc_read_buffer, nbytes);
@@ -991,11 +1067,14 @@ void usb_task(void *)
         len = uart_read_bytes(ECHO_UART_PORT_NUM, Rxdata, (BUF_SIZE - 1), 0);
         if (len > 0) {
             did_work = true;
-            usb_serial_log_append_direction("DEV->PC", (const uint8_t *)Rxdata, (size_t)len);
-            if (!ep_tx_busy_flag) {
-                ep_tx_busy_flag = true;
-                if (usbd_ep_start_write(BUSID, CDC_IN_EP, (uint8_t *)Rxdata, len) < 0) {
-                    ep_tx_busy_flag = false;
+            /* 传输模式下 CDC 通道被 XMODEM 独占，UART 数据只读出丢弃，避免缓冲溢出 */
+            if (!devmode_is_transfer()) {
+                usb_serial_log_append_direction("DEV->PC", (const uint8_t *)Rxdata, (size_t)len);
+                if (!ep_tx_busy_flag) {
+                    ep_tx_busy_flag = true;
+                    if (usbd_ep_start_write(BUSID, CDC_IN_EP, (uint8_t *)Rxdata, len) < 0) {
+                        ep_tx_busy_flag = false;
+                    }
                 }
             }
         }
