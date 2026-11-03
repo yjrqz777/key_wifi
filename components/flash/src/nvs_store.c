@@ -5,7 +5,7 @@
 #include "esp_log.h"
 
 
-const char *TAG = "NVS_STORE";
+static const char *TAG = "NVS_STORE";
 
 
 esp_err_t nvs_save_data(const char* namespace_name, const char* key, const char* value)

@@ -100,26 +100,10 @@
 extern char current_dap_mode; /* DAP 调试口模式：1 表示 SWD 引脚已使能，0 表示引脚已关闭 */
 
 #include "stdio.h"
-/**
- * @brief USB AT 命令通道的数据缓存与处理状态。
- */
-typedef struct tusbatdataDef
-{
-    char u8read_buffer[128]; /**< 从 CDC OUT 收到的一行命令缓存 */
-    uint8_t u8ok;            /**< 待处理标志，为 1 表示缓存中有一条命令等待 usbATLoop 解析 */
-}tusbatdataDef;
-
-
-extern tusbatdataDef tusbatdata; /* AT 命令通道的全局缓存实例，定义在 usbAT.c */
-
-
 
 void usb_task(void *);
 void dap_task(void *);
-bool save_wifi_credentials(const char* ssid, const char* password);
-uint8_t read_wifi_credentials(char* ssid, char* password);
 void usb_CDC_ACM_Data_Dispose(uint32_t nbytes, uint8_t *read_buffer);
 void usb_serial_log_append(const uint8_t *data, size_t len);
 size_t usb_serial_log_snapshot(char *out, size_t out_size);
-
 #endif // MYUSB_H

@@ -1,48 +1,51 @@
 /**
  * @file all_control.c
- * @brief 创建共享控制队列并启动设备功能任务。
- * @details 汇总 WS2812、USB、CMSIS-DAP、按键和 Wi-Fi 五个功能任务的启动入口，
- *          任务之间通过 xQueueLed 队列传递 LED 更新消息。
+ * @brief 启动设备各功能任务，把组件的初始化串起来。
+ * @details 本组件只做编排：先调用各组件自己的初始化接口，再创建它们提供的任务入口，
+ *          自身不实现功能逻辑。LED 队列由 ws2812 组件持有，其他组件通过
+ *          ws2812_send() 投递消息，不直接访问队列。
  */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/event_groups.h"
 #include "esp_log.h"
 
-
 #include "all_control.h"
+#include "webserver.h"
+#include "easy_at.h"
 #include "myusb.h"
+#include "wifi.h"
+#include "ws2812.h"
 
 /**
- * @brief 用于在控制任务之间传递 WS2812 颜色更新消息的队列。
- *
- * 该队列由 all_control_main() 在启动功能任务前创建。
+ * @brief 网络任务：先拉起 Wi-Fi 网络栈，再启动依赖网络栈的 HTTP 服务器。
+ * @param[in] pvParameters 未使用的 FreeRTOS 任务参数。
+ * @note 顺序不能颠倒：httpd_start() 需要 lwIP 与默认事件循环已经初始化。
  */
-QueueHandle_t xQueueLed;
-// QueueHandle_t xQueueKey;
+static void net_task(void *pvParameters)
+{
+    wifi_sta_ap();
+    start_webserver();
+    vTaskDelete(NULL);
+}
 
 /**
- * @brief 初始化共享控制资源并启动设备功能任务。
+ * @brief 初始化共享资源并启动设备功能任务。
  * @param[in] argc 未使用的兼容性参数数量。
  * @param[in] argv 未使用的兼容性参数数组。
- * @note 函数会先创建 xQueueLed，再启动可能使用该队列的功能任务。
+ * @note 函数会先初始化 LED 队列，再启动可能投递颜色消息的功能任务。
  */
 void all_control_main(int argc,int *argv)
 {
-    /* 先创建队列，确保 WS2812 消费任务启动时资源已经就绪。 */
-    xQueueLed = xQueueCreate(5,sizeof(struct tws2812Def));
+    /* LED 队列必须先于任何发送方就绪。 */
+    ESP_ERROR_CHECK(ws2812_init());
 
-    /* 依次启动 LED、USB、CMSIS-DAP、按键和 Wi-Fi 控制任务。 */
-    xTaskCreate(ws2812_task, "ws2812_task", 1024*3, NULL, 5, NULL);
-    xTaskCreate(usb_task, "usb_task", 4096*5, NULL, 15, NULL);
-    xTaskCreate(dap_task, "dap_task", 4096, NULL, 10, NULL);
-    xTaskCreate(key_task, "key_task", 1024*3, NULL, 6, NULL);
-    xTaskCreate(wifi_task, "wifi_task", 4096*3, NULL, 5, NULL);
+    /* 依次启动 LED、USB、CMSIS-DAP、按键和 AT 命令任务。 */
+    xTaskCreate(ws2812_task,    "ws2812_task",  1024*3, NULL, 5, NULL);
+    xTaskCreate(usb_task,       "usb_task",     4096*5, NULL, 15, NULL);
+    xTaskCreate(dap_task,       "dap_task",     4096,   NULL, 10, NULL);
+    xTaskCreate(key_task,       "key_task",     1024*3, NULL, 6, NULL);
+    xTaskCreate(usb_AT,         "usb_AT",       4096,   NULL, 5, NULL);
 
-    // while (true)
-    // {
-    //     vTaskDelay(10/ portTICK_PERIOD_MS);
-    // }
-    
-
+    /* 网络初始化与网页服务放在独立任务里，避免阻塞 app_main。 */
+    xTaskCreate(net_task,       "net_task",     4096*3, NULL, 5, NULL);
 }

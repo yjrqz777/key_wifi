@@ -11,7 +11,7 @@
 /**
  * @file key.c
  * @brief 按键采集任务：把 GPIO 按键事件转换成 WS2812 控制消息。
- * @details 基于 iot_button 组件注册按键回调，按键动作被映射成 HSV 颜色消息投递到 xQueueLed；
+ * @details 基于 iot_button 组件注册按键回调，按键动作被映射成 HSV 颜色消息投递到 ws2812 组件；
  *          按键结束事件还会调用 wifi_button_handler() 触发 Wi-Fi 相关动作。
  */
 
@@ -26,16 +26,14 @@
 #include "button_interface.h"
 #include "iot_button.h"
 
-#include "all_control.h"
+#include "wifi.h"
+#include "ws2812.h"
 
 
 static const char *TAG = "Key";
 
 #define BUTTON_IO_NUM  0                    /* 按键连接的 GPIO 编号 */
 #define BUTTON_ACTIVE_LEVEL   0             /* 按键有效电平，0 表示低电平有效 */
-
-
-extern void wifi_button_handler(void);
 
 
 
@@ -99,7 +97,7 @@ static void button_event_cb(void *arg, void *data)
     {
         /* 一次事件只投递一次，发送后立即清标志，避免重复入队。 */
         u8SendFg = 0;
-        if (xQueueSend(xQueueLed, &tws2812Data, portMAX_DELAY) == pdTRUE) 
+        if (ws2812_send(&tws2812Data, portMAX_DELAY)) 
         {
             // printf("发送RGB: R=%d, G=%d, B=%d\n", AllQueue.r, AllQueue.g, AllQueue.b);
         }

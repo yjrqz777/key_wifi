@@ -630,8 +630,6 @@ static void usbd_event_handler(uint8_t busid, uint8_t event)
 }
 
 
-/* AT 命令处理任务入口，实现在 usbAT.c 中 */
-extern void usb_AT(void *Pr);
 
 /**
  * @brief CDC OUT 端点接收完成回调，把主机数据转发到 UART 并写入串口镜像日志。
@@ -980,7 +978,6 @@ void usb_task(void *)
 
     my_USB_init(BUSID, ESP_USBD_BASE);
     Uart_init();
-    xTaskCreate(usb_AT, "usb_AT", 4096, NULL, 5, NULL);
     while (1)
     {
         bool did_work = false;

@@ -25,11 +25,7 @@ typedef struct {
     size_t len;           /*!< 字符串字节数（含结尾 '\0'）；blob 字节数 */
 } nvs_value_t;
 
-// esp_err_t save_wifi_credentials(const char *ssid, const char *password);
-// esp_err_t read_wifi_credentials(char *ssid, char *password);
-esp_err_t nvs_save_wifidata(const char* namespace_name, const char* ssid, const char* password);
-esp_err_t nvs_read_wifidata(const char* namespace_name, char* ssid, char* password);
-
+esp_err_t nvs_save_data(const char* namespace_name, const char* key, const char* value);
 /**
  * @brief 读取任意类型键值，自动识别存储类型。
  * @param[in]  namespace_name 已存在的命名空间名，最长 15 字符。
