@@ -17,6 +17,8 @@
 #include "wifi.h"
 #include "ws2812.h"
 
+#include "mpu6050.h"
+#include "adc_demo.h"
 /**
  * @brief 网络任务：先拉起 Wi-Fi 网络栈，再启动依赖网络栈的 HTTP 服务器。
  * @param[in] pvParameters 未使用的 FreeRTOS 任务参数。
@@ -50,6 +52,8 @@ void all_control_main(int argc,int *argv)
     xTaskCreate(key_task,       "key_task",     1024*3, NULL, 6, NULL);
     xTaskCreate(usb_AT,         "usb_AT",       4096,   NULL, 5, NULL);
 
+    xTaskCreate(iic_task,       "iic_task",     4096*2, NULL, 7, NULL);
+    xTaskCreate(adc_demo_task,  "adc_demo_task",4096*2, NULL, 2, NULL);
     /* 网络初始化与网页服务放在独立任务里，避免阻塞 app_main。 */
     xTaskCreate(net_task,       "net_task",     4096*3, NULL, 5, NULL);
 }
