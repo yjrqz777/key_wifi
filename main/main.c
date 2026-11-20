@@ -12,6 +12,7 @@
  */
 
 #include <stdint.h>
+#include <inttypes.h>
 #include "esp_log.h"
 #include "soc/soc_caps.h"
 #include "esp_log.h"
@@ -27,7 +28,36 @@
 #include "all_control.h"
 #include "nvs_store.h"
 
+#include "esp_ota_ops.h"
+#include "esp_flash.h"
+#include "esp_system.h"
 const char *TAG = "main";
+
+/**
+ * @brief 打印分区的完整信息。
+ * @param[in] part 分区指针，不能为 NULL。
+ * @param[in] name 日志中的分区标识，如 "Running partition"。
+ */
+static void print_partition_info(const esp_partition_t *part, const char *name)
+{
+    ESP_LOGI(TAG,
+            "%s: chip_id=0x%" PRIx32
+            ", type=%" PRIu32 ", subtype=%" PRIu32
+            ", address=0x%" PRIx32 ", size=0x%" PRIx32 " (%" PRIu32 " B)"
+            ", erase_size=0x%" PRIx32 ", label=\"%s\", encrypted=%d, readonly=%d",
+            name,
+            part->flash_chip->chip_id,
+            (uint32_t)part->type,
+            (uint32_t)part->subtype,
+            part->address,
+            part->size,
+            part->size,
+            part->erase_size,
+            part->label,
+            part->encrypted,
+            part->readonly
+            );
+}
 
 
 /***************************************************************************************************
@@ -52,7 +82,44 @@ void app_main(void)
 
     NvsShowAllEntries();
 
-    all_control_main(0, NULL);
+// esp_ota_get_running_partition	esp_ota_ops.c	获取当前正在运行的分区
+// esp_ota_get_boot_partition	esp_ota_ops.c	获取下次启动分区
+// esp_ota_get_next_update_partition	esp_ota_ops.c	获取本次应写入的 OTA 分区
+// esp_partition_find_first	partition.c	按类型、子类型或名字查找分区
+    static const esp_partition_t *curr_partition = NULL;
+// typedef struct {
+//     esp_flash_t* flash_chip;            /*!< SPI flash chip on which the partition resides */
+//     esp_partition_type_t type;          /*!< partition type (app/data) */
+//     esp_partition_subtype_t subtype;    /*!< partition subtype */
+//     uint32_t address;                   /*!< starting address of the partition in flash */
+//     uint32_t size;                      /*!< size of the partition, in bytes */
+//     uint32_t erase_size;                /*!< size the erase operation should be aligned to */
+//     char label[17];                     /*!< partition label, zero-terminated ASCII string */
+//     bool encrypted;                     /*!< flag is set to true if partition is encrypted */
+//     bool readonly;                      /*!< flag is set to true if partition is read-only */
+// } esp_partition_t;
+    curr_partition = esp_ota_get_running_partition();
+    if (curr_partition == NULL) 
+    {
+        ESP_LOGE(TAG, "get running partition failed");
+        return;
+    }
+
+    print_partition_info(curr_partition, "Running partition");
+
+    /* esp_ota_get_boot_partition() 返回 otadata 指向的下次启动 app 分区，不是 otadata 分区本身。 */
+    static const esp_partition_t *otadata_partition = NULL;
+    otadata_partition = esp_ota_get_boot_partition();
+    if (otadata_partition == NULL)
+    {
+        ESP_LOGE(TAG, "get boot partition failed");
+        return;
+    }
+
+    print_partition_info(otadata_partition, "Boot partition");
+
+
+    // all_control_main(0, NULL);
     ESP_LOGI(TAG, "all_control_main init Success");
 
     while (1)
