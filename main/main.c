@@ -119,7 +119,7 @@ void app_main(void)
     print_partition_info(otadata_partition, "Boot partition");
 
 
-    // all_control_main(0, NULL);
+    all_control_main(0, NULL);
     ESP_LOGI(TAG, "all_control_main init Success");
 
     while (1)

@@ -19,6 +19,8 @@
 
 #include "mpu6050.h"
 #include "adc_demo.h"
+#include "ble.h"
+
 /**
  * @brief 网络任务：先拉起 Wi-Fi 网络栈，再启动依赖网络栈的 HTTP 服务器。
  * @param[in] pvParameters 未使用的 FreeRTOS 任务参数。
@@ -47,13 +49,13 @@ void all_control_main(int argc,int *argv)
 
     /* 依次启动 LED、USB、CMSIS-DAP、按键和 AT 命令任务。 */
     xTaskCreate(ws2812_task,    "ws2812_task",  1024*3, NULL, 5, NULL);
-    xTaskCreate(usb_task,       "usb_task",     4096*5, NULL, 15, NULL);
-    xTaskCreate(dap_task,       "dap_task",     4096,   NULL, 10, NULL);
-    xTaskCreate(key_task,       "key_task",     1024*3, NULL, 6, NULL);
-    xTaskCreate(usb_AT,         "usb_AT",       4096,   NULL, 5, NULL);
-
-    xTaskCreate(iic_task,       "iic_task",     4096*2, NULL, 7, NULL);
-    xTaskCreate(adc_demo_task,  "adc_demo_task",4096*2, NULL, 2, NULL);
+    // xTaskCreate(usb_task,       "usb_task",     4096*5, NULL, 15, NULL);
+    // xTaskCreate(dap_task,       "dap_task",     4096,   NULL, 10, NULL);
+    // xTaskCreate(key_task,       "key_task",     1024*3, NULL, 6, NULL);
+    // xTaskCreate(usb_AT,         "usb_AT",       4096,   NULL, 5, NULL);
+    xTaskCreate(ble_task,       "ble_task",     4096*5, NULL, 6, NULL);
+    // xTaskCreate(iic_task,       "iic_task",     4096*2, NULL, 7, NULL);
+    // xTaskCreate(adc_demo_task,  "adc_demo_task",4096*2, NULL, 2, NULL);
     /* 网络初始化与网页服务放在独立任务里，避免阻塞 app_main。 */
-    xTaskCreate(net_task,       "net_task",     4096*3, NULL, 5, NULL);
+    // xTaskCreate(net_task,       "net_task",     4096*3, NULL, 5, NULL);
 }
