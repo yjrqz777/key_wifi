@@ -7,6 +7,7 @@ ESP32-S3 多功能固件，集成了：
 - SoftAP + WebServer 控制页面
 - WS2812 控制
 - 串口数据网页监控（含方向标记）
+- BLE 串口服务端（NimBLE，手机 <-> UART0 桥接）
 
 ## 主要功能
 
@@ -54,6 +55,24 @@ ESP32-S3 多功能固件，集成了：
 
 - CherryUSB 配置：`components/cherry-embedded__cherryusb/osal/idf/usb_config.h`
 - DAP 配置：`components/DAP/Include/DAP_config.h`
+
+### 4. BLE 串口服务端
+
+基于 NimBLE 的 BLE 从机，把自定义 GATT 特征和 UART0 桥接，手机或客户端连上后相当于一条无线串口。
+
+- 广播名：`Key_wifi`（`components/ble/src/ble.c` 里的 `BLE_DEVICE_NAME`）
+- 自定义服务：`0xABF0`
+- 特征：`0xABF1`，权限 `READ / WRITE / NOTIFY`
+- 串口到手机：UART0 收到的数据只推给已订阅通知的客户端
+- 手机到串口：客户端写入 `0xABF1` 的数据原样写到 UART0
+- 串口沿用 UART0（同时是日志口），115200 8N1，不开硬件流控；数据会和日志共用同一个物理口
+- 与 ESP-IDF 示例 `bluetooth/nimble/ble_spp/spp_client` 兼容
+
+相关文件：
+
+- `components/ble/src/ble.c`
+- `components/ble/include/ble.h`
+- `components/ble/CMakeLists.txt`
 
 ## 编译与烧录
 

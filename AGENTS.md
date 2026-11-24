@@ -6,6 +6,7 @@ This is an ESP32-S3 firmware project built with ESP-IDF. The application entry p
 
 - `components/all_control/`: task orchestration, Wi-Fi, HTTP routes, embedded web pages, keys, and WS2812 control.
 - `components/myusb/`: CherryUSB descriptors, CDC/UART forwarding, MSC/FAT handling, and CMSIS-DAP glue.
+- `components/ble/`: NimBLE BLE serial server exposing a custom GATT service (`0xABF0`/`0xABF1`) bridged to UART0.
 - `components/DAP/`: CMSIS-DAP implementation and ARM core headers.
 - `components/cherryrb/`: ring buffer used by serial forwarding.
 - `components/cherry-embedded__cherryusb/`: vendored USB stack; avoid unrelated edits.

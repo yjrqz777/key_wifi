@@ -4,7 +4,7 @@ This file gives Claude Code the repo-specific context needed to work effectively
 
 ## Project Overview
 
-`key_wifi` is ESP32-S3 firmware built with ESP-IDF. It combines CherryUSB device functions, CMSIS-DAP over WinUSB, USB CDC-to-UART forwarding, MSC/FAT presentation, SoftAP/STA Wi-Fi control, an embedded HTTP UI, keys, and WS2812 LED control.
+`key_wifi` is ESP32-S3 firmware built with ESP-IDF. It combines CherryUSB device functions, CMSIS-DAP over WinUSB, USB CDC-to-UART forwarding, MSC/FAT presentation, SoftAP/STA Wi-Fi control, an embedded HTTP UI, keys, WS2812 LED control, and a NimBLE BLE serial server bridged to UART0.
 
 The runtime entry is `app_main()` in `main/main.c`. It initializes NVS, then calls `all_control_main()` in `components/all_control/all_control.c`. That function creates the shared LED queue and starts the core FreeRTOS tasks:
 
@@ -13,6 +13,7 @@ The runtime entry is `app_main()` in `main/main.c`. It initializes NVS, then cal
 - `dap_task`
 - `key_task`
 - `wifi_task`
+- `ble_task`
 
 ## Common Commands
 
@@ -105,6 +106,15 @@ USB integration is in `components/myusb/`:
 Important USB constants are in `components/myusb/include/myusb.h`: UART pins, endpoint numbers, VID/PID, interface count, MSC enablement, and `current_dap_mode`.
 
 CDC serial traffic is mirrored into a 4096-byte in-memory log in `myusb.c`. The webserver reads it through `usb_serial_log_snapshot()` for `/serial`.
+
+### BLE Serial Server
+
+BLE support is in `components/ble/`:
+
+- `src/ble.c` runs `ble_init()` from `ble_task`: starts NimBLE, registers a custom GATT service `0xABF0` with a single `0xABF1` characteristic (READ/WRITE/NOTIFY), and bridges it to UART0.
+- UART0 RX data is sent as notifications to clients that subscribed; writes to `0xABF1` are forwarded to UART0 TX. UART0 is shared with the log console.
+- The advertised device name is `Key_wifi` (`BLE_DEVICE_NAME` in `src/ble.c`); service and characteristic UUID macros live in `include/ble.h`.
+- `CMakeLists.txt` requires `bt` and `driver`; `all_control.c` creates `ble_task`.
 
 ### Imported Code
 
